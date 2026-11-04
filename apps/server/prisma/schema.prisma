@@ -1,0 +1,237 @@
+// Modelo de datos de La Ofi (sección 7 del CLAUDE.md, con los campos que pidió la Fase 1).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CellType {
+  DEV
+  QA
+  INFRA
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum Status {
+  AVAILABLE
+  BUSY
+  FOCUS
+  MEETING
+  AWAY
+}
+
+enum RoomKind {
+  CELL
+  SHARED
+  AUDITORIUM
+  CAFETERIA
+}
+
+enum KnockResponse {
+  ENTER
+  WAIT_10
+  NOT_NOW
+}
+
+enum DeliveryStatus {
+  SENT
+  TESTING
+  APPROVED
+  RETURNED
+}
+
+enum DeliverySource {
+  MANUAL
+  DEMO
+  DEVOPS
+}
+
+enum MeetingSource {
+  MANUAL
+  DEMO
+  GRAPH
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(MEMBER)
+  /// Cargo visible en el directorio, por ejemplo "Jefe de desarrollo"
+  title        String?
+  cellId       String?
+  cell         Cell?    @relation(fields: [cellId], references: [id])
+  avatarConfig Json
+  status       Status   @default(AVAILABLE)
+  createdAt    DateTime @default(now())
+  office       Office?
+  notesSent    Note[]   @relation("NoteFrom")
+  notesRecv    Note[]   @relation("NoteTo")
+  knocksSent   Knock[]  @relation("KnockFrom")
+  knocksRecv   Knock[]  @relation("KnockTo")
+  deliveries   Delivery[]
+  meetings     Meeting[]
+}
+
+model Cell {
+  id      String   @id
+  name    String
+  type    CellType
+  color   String
+  logoUrl String?
+  floorId String?  @unique
+  floor   Floor?   @relation(fields: [floorId], references: [id])
+  users   User[]
+  deliveries Delivery[]
+}
+
+model Floor {
+  id       String   @id
+  name     String
+  level    Int      @unique
+  isCommon Boolean  @default(false)
+  isLocked Boolean  @default(false)
+  /// FloorLayout de @laofi/shared: { width, depth, spawn, elevator }
+  layout   Json
+  cell     Cell?
+  offices  Office[]
+  rooms    Room[]
+  /// Mobiliario común del piso (no pertenece a ninguna oficina)
+  furniture PlacedFurniture[]
+}
+
+model Office {
+  id         String   @id @default(cuid())
+  ownerId    String?  @unique
+  owner      User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  floorId    String
+  floor      Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  gridX      Int
+  gridY      Int
+  width      Int
+  depth      Int
+  doorSide   String   @default("s")
+  doorAt     Int
+  wallColor  String?
+  floorColor String?
+  furniture  PlacedFurniture[]
+}
+
+model Room {
+  id        String   @id
+  floorId   String
+  floor     Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  name      String
+  kind      RoomKind
+  teamsLink String?
+  /// Para la sala libre: cualquier persona puede poner el link de una reunión planeada
+  linkEditableByAll Boolean @default(false)
+  /// Descripción corta, por ejemplo "Daily de Axis · 9:00 a. m."
+  description String?
+  gridX     Int
+  gridY     Int
+  width     Int
+  depth     Int
+  doorSide  String   @default("s")
+  doorAt    Int
+  meetings  Meeting[]
+}
+
+model FurnitureCatalog {
+  id         String  @id @default(cuid())
+  key        String  @unique
+  name       String
+  modelUrl   String?
+  footprintW Int
+  footprintD Int
+  colorable  Boolean
+  placed     PlacedFurniture[]
+}
+
+model PlacedFurniture {
+  id        String           @id @default(cuid())
+  officeId  String?
+  office    Office?          @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  floorId   String?
+  floor     Floor?           @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  catalogId String
+  catalog   FurnitureCatalog @relation(fields: [catalogId], references: [id])
+  gridX     Int
+  gridY     Int
+  rotation  Int              @default(0)
+  color     String?
+}
+
+model Note {
+  id         String    @id @default(cuid())
+  fromUserId String
+  from       User      @relation("NoteFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId   String
+  to         User      @relation("NoteTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  text       String
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([toUserId, readAt])
+}
+
+model Knock {
+  id         String         @id @default(cuid())
+  fromUserId String
+  from       User           @relation("KnockFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId   String
+  to         User           @relation("KnockTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  response   KnockResponse?
+  /// true si llegó mientras la persona estaba en foco o ausente
+  queued     Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+
+  @@index([toUserId, response])
+}
+
+/// Fase 2: un desarrollo enviado a QA. La caja que viaja al muelle.
+model Delivery {
+  id          String         @id @default(cuid())
+  externalId  String
+  title       String
+  fromCellId  String
+  fromCell    Cell           @relation(fields: [fromCellId], references: [id], onDelete: Cascade)
+  status      DeliveryStatus @default(SENT)
+  source      DeliverySource @default(MANUAL)
+  /// Motivo de la devolución (etiqueta de bug)
+  note        String?
+  createdById String?
+  createdBy   User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+/// Fase 2: agenda de una persona. Hoy se llena a mano; con Graph vendría del calendario.
+model Meeting {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String
+  startsAt      DateTime
+  endsAt        DateTime
+  roomId        String
+  room          Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  teamsLink     String?
+  source        MeetingSource @default(MANUAL)
+  notifiedAt    DateTime?
+  endNotifiedAt DateTime?
+  createdAt     DateTime      @default(now())
+
+  @@index([userId, startsAt])
+  @@index([notifiedAt, startsAt])
+}

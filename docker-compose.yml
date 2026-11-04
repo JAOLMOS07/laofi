@@ -1,0 +1,52 @@
+# Entorno local completo: `docker compose up`
+# - client:  http://localhost:5173 (la API va por el mismo origen en /api)
+# - server:  ws://localhost:2567 (Colyseus) y http://localhost:2568 (API REST)
+# - postgres: localhost:5432 · redis queda listo para cuando haya varias instancias
+# Datos de ejemplo: docker compose exec server npx tsx src/seed.ts
+# LiveKit (voz) arranca solo con: docker compose --profile voz up
+services:
+  server:
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    environment:
+      SERVER_PORT: 2567
+      API_PORT: 2568
+      SESSION_SECRET: ${SESSION_SECRET:-solo-para-desarrollo-cambiame-por-favor-32}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-laofi}:${POSTGRES_PASSWORD:-laofi_dev}@postgres:5432/${POSTGRES_DB:-laofi}
+      REDIS_URL: redis://redis:6379
+    ports: ['2567:2567', '2568:2568']
+    depends_on: [postgres, redis]
+
+  client:
+    build: { context: ., dockerfile: apps/client/Dockerfile }
+    environment:
+      # El navegador se conecta desde tu máquina, por eso es localhost y no "server".
+      VITE_SERVER_URL: ws://localhost:2567
+      # Vite reenvía /api al contenedor del servidor.
+      API_PROXY_TARGET: http://server:2568
+    ports: ['5173:5173']
+    depends_on: [server]
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-laofi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-laofi_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-laofi}
+    ports: ['5432:5432']
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7-alpine
+    ports: ['6379:6379']
+
+  livekit:
+    image: livekit/livekit-server:v1.9
+    command: --dev --bind 0.0.0.0
+    ports: ['7880:7880', '7881:7881', '7882:7882/udp']
+    profiles: [voz]
+
+volumes:
+  pgdata:
