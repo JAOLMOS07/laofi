@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { Rect } from './building.js';
 
-export const DELIVERY_STATUSES = ['SENT', 'TESTING', 'APPROVED', 'RETURNED'] as const;
+export const DELIVERY_STATUSES = ['SENT', 'TESTING', 'APPROVED', 'RETURNED', 'DEPLOYED'] as const;
 export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 
 /** De dónde salió: a mano, simulada para la demo, o del webhook de Azure DevOps (pendiente). */
@@ -18,8 +18,9 @@ export type MeetingSource = (typeof MEETING_SOURCES)[number];
 export const DELIVERY_FLOW: Record<DeliveryStatus, readonly DeliveryStatus[]> = {
   SENT: ['TESTING', 'RETURNED'],
   TESTING: ['APPROVED', 'RETURNED'],
-  APPROVED: [],
+  APPROVED: ['DEPLOYED'],
   RETURNED: ['SENT'],
+  DEPLOYED: [],
 };
 
 export interface DeliveryActor {
@@ -32,7 +33,7 @@ export function canCreateDelivery(actor: DeliveryActor): boolean {
   return actor.role === 'ADMIN' || actor.cellType === 'DEV';
 }
 
-/** QA mueve la caja; la célula de origen solo puede reenviar lo devuelto. Los admins pueden todo. */
+/** QA prueba y decide; la célula de origen reenvía lo devuelto y despliega lo aprobado. Los admins pueden todo. */
 export function canAdvanceDelivery(
   actor: DeliveryActor,
   delivery: { fromCellId: string; status: DeliveryStatus },
@@ -40,7 +41,7 @@ export function canAdvanceDelivery(
 ): boolean {
   if (!DELIVERY_FLOW[delivery.status].includes(to)) return false;
   if (actor.role === 'ADMIN') return true;
-  if (to === 'SENT') return actor.cellId === delivery.fromCellId;
+  if (to === 'SENT' || to === 'DEPLOYED') return actor.cellId === delivery.fromCellId;
   return actor.cellType === 'QA';
 }
 
@@ -49,6 +50,8 @@ export const CreateDeliverySchema = z.object({
   title: z.string().trim().min(3).max(160),
   /** Solo los admins eligen la célula; los demás entregan desde la suya. */
   fromCellId: z.string().min(1).max(40).optional(),
+  /** Link del work item en Azure DevOps. */
+  url: z.string().trim().max(2000).nullish(),
 });
 
 export const AdvanceDeliverySchema = z.object({
@@ -63,6 +66,49 @@ export const CreateMeetingSchema = z.object({
   durationMin: z.number().int().min(5).max(480),
   roomId: z.string().min(1).max(64),
   teamsLink: z.string().trim().max(2000).nullish(),
+});
+
+/** En qué está cada persona. Lo publica ella misma: nada se detecta solo. */
+export const WORK_ACTIVITIES = ['DEVELOPING', 'REVIEWING', 'TESTING', 'DEPLOYING', 'SUPPORT'] as const;
+export type WorkActivity = (typeof WORK_ACTIVITIES)[number];
+
+export const WORK_ACTIVITY_LABEL: Record<WorkActivity, string> = {
+  DEVELOPING: 'Desarrollando',
+  REVIEWING: 'Revisando',
+  TESTING: 'Probando',
+  DEPLOYING: 'Desplegando',
+  SUPPORT: 'Apoyando',
+};
+
+export const CurrentWorkInputSchema = z.object({
+  activity: z.enum(WORK_ACTIVITIES),
+  itemId: z.string().trim().min(1).max(40),
+  title: z.string().trim().max(120).nullish(),
+  url: z.string().trim().max(2000).nullish(),
+});
+
+export interface CurrentWork {
+  activity: WorkActivity;
+  itemId: string;
+  title: string | null;
+  url: string | null;
+}
+
+/** Lee lo guardado en la base o en la room; lo que no tenga la forma esperada se ignora. */
+export function parseCurrentWork(raw: unknown): CurrentWork | null {
+  const r = CurrentWorkInputSchema.safeParse(raw);
+  if (!r.success) return null;
+  return {
+    activity: r.data.activity,
+    itemId: r.data.itemId,
+    title: r.data.title || null,
+    url: r.data.url || null,
+  };
+}
+
+export const ChangePasswordSchema = z.object({
+  current: z.string().min(1).max(200),
+  next: z.string().min(10, 'La contraseña nueva debe tener al menos 10 caracteres.').max(200),
 });
 
 /** Con cuánta anticipación llega "Tu reunión empieza: ¿vamos?". */

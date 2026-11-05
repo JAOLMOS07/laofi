@@ -21,19 +21,25 @@ export interface SessionUser {
   role: 'ADMIN' | 'MEMBER';
   name: string;
   cellId: string | null;
+  mustChangePassword: boolean;
 }
 
 /** Lee la cookie de sesión y devuelve la persona, o lanza 401. */
-export async function requireUser(req: FastifyRequest): Promise<SessionUser> {
+export async function requireUser(
+  req: FastifyRequest,
+  opts: { allowPendingPassword?: boolean } = {},
+): Promise<SessionUser> {
   const token = req.cookies[SESSION_COOKIE];
   const id = token ? await verifyToken(token, 'session') : null;
   const u = id
     ? await prisma.user.findUnique({
         where: { id },
-        select: { id: true, role: true, name: true, cellId: true },
+        select: { id: true, role: true, name: true, cellId: true, mustChangePassword: true },
       })
     : null;
   if (!u) throw new HttpError(401, 'Tienes que iniciar sesión.');
+  if (u.mustChangePassword && !opts.allowPendingPassword)
+    throw new HttpError(403, 'Primero cambia tu contraseña temporal.');
   return u;
 }
 

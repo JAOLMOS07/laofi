@@ -45,6 +45,7 @@ enum DeliveryStatus {
   TESTING
   APPROVED
   RETURNED
+  DEPLOYED
 }
 
 enum DeliverySource {
@@ -64,6 +65,8 @@ model User {
   email        String   @unique
   name         String
   passwordHash String
+  /// Contraseña temporal: hay que cambiarla antes de usar la app
+  mustChangePassword Boolean @default(false)
   role         Role     @default(MEMBER)
   /// Cargo visible en el directorio, por ejemplo "Jefe de desarrollo"
   title        String?
@@ -71,6 +74,8 @@ model User {
   cell         Cell?    @relation(fields: [cellId], references: [id])
   avatarConfig Json
   status       Status   @default(AVAILABLE)
+  /// En qué está trabajando (CurrentWork de @laofi/shared). Lo pone la persona.
+  currentWork  Json?
   createdAt    DateTime @default(now())
   office       Office?
   notesSent    Note[]   @relation("NoteFrom")
@@ -202,6 +207,8 @@ model Delivery {
   id          String         @id @default(cuid())
   externalId  String
   title       String
+  /// Link del work item en Azure DevOps
+  url         String?
   fromCellId  String
   fromCell    Cell           @relation(fields: [fromCellId], references: [id], onDelete: Cascade)
   status      DeliveryStatus @default(SENT)

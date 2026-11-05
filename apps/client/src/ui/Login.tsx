@@ -45,7 +45,7 @@ export function Login() {
           autoComplete="username"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="tu@laofi.local"
+          placeholder="tu correo del trabajo"
           required
         />
         <label className="lbl" htmlFor="password">

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { directory, goToDoor, knockOn } from '../../actions';
 import { playerByUser, send } from '../../net/floor';
 import { firstName, useUi } from '../../state/store';
-import { Face, PanelHeader, StatusChip } from '../common';
+import { Face, PanelHeader, StatusChip, WorkLink } from '../common';
 import { Icon } from '../icons';
 
 export function PersonPanel({ userId }: { userId: string }) {
@@ -56,6 +56,14 @@ export function PersonPanel({ userId }: { userId: string }) {
         <dd>
           <StatusChip status={status} />
         </dd>
+        {person.currentWork && (
+          <>
+            <dt>En qué está</dt>
+            <dd>
+              <WorkLink work={person.currentWork} />
+            </dd>
+          </>
+        )}
         <dt>Dónde está</dt>
         <dd>{where}</dd>
         <dt>Su oficina</dt>

@@ -3,6 +3,7 @@ import { CATALOG } from '@laofi/shared';
 import type { Prisma } from '@prisma/client';
 import { hashPassword } from './auth/passwords.js';
 import { prisma } from './db.js';
+import { env } from './env.js';
 import { assignOffice } from './offices.js';
 import {
   CELLS,
@@ -11,6 +12,7 @@ import {
   LAYOUT,
   LOBBY_OFFICE_EMAILS,
   ROOMS,
+  type SeedUser,
   USERS,
   catalogRows,
   commonFurniture,
@@ -18,6 +20,7 @@ import {
 
 /** Borra todo y carga los datos de ejemplo. Solo para desarrollo y pruebas. */
 export async function seed(): Promise<void> {
+  if (env.production) throw new Error('El seed de desarrollo borra todo: no corre en producción.');
   await prisma.$transaction([
     prisma.delivery.deleteMany(),
     prisma.meeting.deleteMany(),
@@ -32,6 +35,31 @@ export async function seed(): Promise<void> {
     prisma.furnitureCatalog.deleteMany(),
   ]);
 
+  const passwordHash = await hashPassword(DEV_PASSWORD);
+  await populate(async () => ({ passwordHash, mustChangePassword: false }));
+
+  // Un par de post-its de ejemplo para que el escritorio de Jhoger no arranque vacío.
+  const byEmail = (n: string) => prisma.user.findUniqueOrThrow({ where: { email: `${n}@laofi.local` } });
+  const jhoger = await byEmail('jhoger');
+  const andres = await byEmail('andres');
+  const daniela = await byEmail('daniela');
+  await prisma.note.createMany({
+    data: [
+      { fromUserId: andres.id, toUserId: jhoger.id, text: 'Te dejé el PR #482 para revisión cuando puedas.' },
+      {
+        fromUserId: daniela.id,
+        toUserId: jhoger.id,
+        text: 'La HU-1290 volvió con un bug en el registro. La evidencia está en el work item.',
+      },
+    ],
+  });
+}
+
+/** Crea el edificio y las cuentas. Las cuentas y su contraseña las decide quien llama. */
+export async function populate(
+  credentialsFor: (email: string) => Promise<{ passwordHash: string; mustChangePassword: boolean }>,
+  users: SeedUser[] = USERS,
+): Promise<void> {
   await prisma.furnitureCatalog.createMany({ data: catalogRows });
   const catalog = new Map((await prisma.furnitureCatalog.findMany()).map((c) => [c.key, c.id]));
 
@@ -71,8 +99,7 @@ export async function seed(): Promise<void> {
     });
   }
 
-  const passwordHash = await hashPassword(DEV_PASSWORD);
-  for (const u of USERS) {
+  for (const u of users) {
     const cell = CELLS.find((c) => c.id === u.cell);
     const user = await prisma.user.create({
       data: {
@@ -82,28 +109,12 @@ export async function seed(): Promise<void> {
         role: u.admin ? 'ADMIN' : 'MEMBER',
         cellId: u.cell,
         avatarConfig: u.avatar,
-        passwordHash,
+        ...(await credentialsFor(u.email)),
       },
     });
     const floorId = cell?.floorId ?? (LOBBY_OFFICE_EMAILS.includes(u.email) ? 'lobby' : null);
     if (floorId) await assignOffice(user.id, floorId, cell?.color ?? '#6b7f99');
   }
-
-  // Un par de post-its de ejemplo para que el escritorio de Jhoger no arranque vacío.
-  const byEmail = (n: string) => prisma.user.findUniqueOrThrow({ where: { email: `${n}@laofi.local` } });
-  const jhoger = await byEmail('jhoger');
-  const andres = await byEmail('andres');
-  const daniela = await byEmail('daniela');
-  await prisma.note.createMany({
-    data: [
-      { fromUserId: andres.id, toUserId: jhoger.id, text: 'Te dejé el PR #482 para revisión cuando puedas.' },
-      {
-        fromUserId: daniela.id,
-        toUserId: jhoger.id,
-        text: 'La HU-1290 volvió con un bug en el registro. La evidencia está en el work item.',
-      },
-    ],
-  });
 }
 
 // basename entiende / y \\, así funciona igual en Windows.

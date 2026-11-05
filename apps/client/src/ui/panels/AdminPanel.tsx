@@ -97,6 +97,25 @@ export function AdminPanel() {
                   run(() => api('PATCH', `/admin/users/${u.id}`, { title: v || null }), 'Cargo guardado')
                 }
               />
+              {u.id !== me?.id && (
+                <button
+                  className="btn sm"
+                  onClick={() =>
+                    void api<{ password: string }>('POST', `/admin/users/${u.id}/reset-password`)
+                      .then(({ password }) =>
+                        toast({
+                          title: `Contraseña temporal de ${u.name}`,
+                          text: `${password} · Se muestra solo esta vez. Deberá cambiarla al entrar.`,
+                          icon: 'lock',
+                          timeout: 0,
+                        }),
+                      )
+                      .catch((e: unknown) => setError(e instanceof ApiError ? e.message : String(e)))
+                  }
+                >
+                  Restablecer contraseña
+                </button>
+              )}
             </div>
           ))}
           <NewUser

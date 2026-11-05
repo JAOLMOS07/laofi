@@ -23,6 +23,7 @@ export type PanelKind =
   | 'admin'
   | 'deliveries'
   | 'agenda'
+  | 'work'
   | 'integrations';
 
 export interface ToastAction {

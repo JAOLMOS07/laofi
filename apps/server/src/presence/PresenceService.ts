@@ -1,4 +1,4 @@
-import type { ServerEventType, ServerEvents, Status, VoiceMode } from '@laofi/shared';
+import type { CurrentWork, ServerEventType, ServerEvents, Status, VoiceMode } from '@laofi/shared';
 
 /**
  * PresenceService global y ligero: el mapa userId → {pisoId, salaId?, estado, modoVoz}.
@@ -30,6 +30,8 @@ export interface FloorHandle {
   setUserStatus(userId: string, status: Status): void;
   /** Cambió el avatar de alguien (se ve al instante sin volver a entrar). */
   setUserAvatar(userId: string, avatarJson: string): void;
+  /** Cambió lo que alguien publica en su oficina. */
+  setUserWork(userId: string, work: CurrentWork | null): void;
   /** Vuelve a contar los post-its sin leer de alguien (se ven sobre su escritorio). */
   refreshNotes(userId: string): Promise<void>;
 }

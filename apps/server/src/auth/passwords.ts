@@ -22,3 +22,6 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const key = await scrypt(password, Buffer.from(saltB64, 'base64'), expected.length);
   return timingSafeEqual(key, expected);
 }
+
+/** Contraseña temporal aleatoria (72 bits): se entrega una vez y hay que cambiarla al entrar. */
+export const temporaryPassword = (): string => randomBytes(9).toString('base64url');

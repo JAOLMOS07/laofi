@@ -3,6 +3,7 @@ import {
   AvatarConfigSchema,
   type BuildingFloor,
   type CellInfo,
+  ChangePasswordSchema,
   type DirectoryEntry,
   type Me,
   type NoteInfo,
@@ -12,12 +13,13 @@ import {
   type VoiceToken,
   normalizeTeamsLink,
   parseAvatar,
+  parseCurrentWork,
 } from '@laofi/shared';
 import type { FastifyInstance } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
 import { z } from 'zod';
 import { authProvider } from '../auth/AuthProvider.js';
-import { hashPassword } from '../auth/passwords.js';
+import { hashPassword, temporaryPassword, verifyPassword } from '../auth/passwords.js';
 import { signRoomToken, signSession } from '../auth/tokens.js';
 import { prisma } from '../db.js';
 import { env, voiceEnabled } from '../env.js';
@@ -27,6 +29,22 @@ import { presence } from '../presence/PresenceService.js';
 import { HttpError, SESSION_COOKIE, parse, requireAdmin, requireUser, setSession } from './http.js';
 
 const DEFAULT_ACCENT = '#6b7f99';
+const LOGIN_WINDOW_MS = 15 * 60_000;
+const LOGIN_MAX_FAILURES = 8;
+/** Intentos fallidos por email. Está en memoria: basta para frenar a quien prueba contraseñas. */
+const loginFailures = new Map<string, { count: number; until: number }>();
+
+function loginBlocked(email: string): boolean {
+  const f = loginFailures.get(email);
+  if (f && f.until < Date.now()) loginFailures.delete(email);
+  return (loginFailures.get(email)?.count ?? 0) >= LOGIN_MAX_FAILURES;
+}
+
+function recordLoginFailure(email: string): void {
+  const f = loginFailures.get(email);
+  loginFailures.set(email, { count: (f?.count ?? 0) + 1, until: Date.now() + LOGIN_WINDOW_MS });
+}
+
 const since = () => new Date(Date.now() - RETENTION_DAYS * 24 * 3600 * 1000);
 
 async function loadMe(id: string): Promise<Me> {
@@ -41,6 +59,8 @@ async function loadMe(id: string): Promise<Me> {
     avatar: parseAvatar(u.avatarConfig),
     cell: u.cell ? { id: u.cell.id, name: u.cell.name, color: u.cell.color, floorId: u.cell.floorId } : null,
     cellType: u.cell?.type ?? null,
+    currentWork: parseCurrentWork(u.currentWork),
+    mustChangePassword: u.mustChangePassword,
     homeFloorId: u.office?.floorId ?? null,
   };
 }
@@ -65,8 +85,18 @@ export function registerRoutes(app: FastifyInstance): void {
       z.object({ email: z.string().min(3).max(200), password: z.string().min(1).max(200) }),
       req.body,
     );
+    const email = body.email.trim().toLowerCase();
+    if (loginBlocked(email))
+      throw new HttpError(
+        429,
+        'Demasiados intentos. Espera unos minutos o pídele a un admin que la restablezca.',
+      );
     const user = await authProvider.login(body);
-    if (!user) throw new HttpError(401, 'Email o contraseña incorrectos.');
+    if (!user) {
+      recordLoginFailure(email);
+      throw new HttpError(401, 'Email o contraseña incorrectos.');
+    }
+    loginFailures.delete(email);
     setSession(reply, await signSession(user.id));
     return loadMe(user.id);
   });
@@ -76,7 +106,21 @@ export function registerRoutes(app: FastifyInstance): void {
     return { ok: true };
   });
 
-  app.get('/api/me', async (req) => loadMe((await requireUser(req)).id));
+  app.get('/api/me', async (req) => loadMe((await requireUser(req, { allowPendingPassword: true })).id));
+
+  app.post('/api/me/password', async (req) => {
+    const u = await requireUser(req, { allowPendingPassword: true });
+    const { current, next } = parse(ChangePasswordSchema, req.body);
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: u.id } });
+    if (!(await verifyPassword(current, row.passwordHash)))
+      throw new HttpError(400, 'La contraseña actual no es correcta.');
+    if (current === next) throw new HttpError(400, 'La contraseña nueva tiene que ser distinta.');
+    await prisma.user.update({
+      where: { id: u.id },
+      data: { passwordHash: await hashPassword(next), mustChangePassword: false },
+    });
+    return loadMe(u.id);
+  });
 
   /** Token corto para entrar a la room de un piso. */
   app.post('/api/auth/room-token', async (req) => {
@@ -148,6 +192,7 @@ export function registerRoutes(app: FastifyInstance): void {
         floorId: p?.floorId ?? null,
         roomId: p?.roomId ?? null,
         homeFloorId: u.office?.floorId ?? null,
+        currentWork: parseCurrentWork(u.currentWork),
       };
     });
   });
@@ -385,6 +430,20 @@ export function registerRoutes(app: FastifyInstance): void {
       await reloadFloors(office?.floorId);
     }
     return loadMe(id);
+  });
+
+  /** Genera una contraseña temporal. Se muestra una sola vez al admin. */
+  app.post('/api/admin/users/:id/reset-password', async (req) => {
+    await requireAdmin(req);
+    const { id } = req.params as { id: string };
+    const password = temporaryPassword();
+    const { count } = await prisma.user.updateMany({
+      where: { id },
+      data: { passwordHash: await hashPassword(password), mustChangePassword: true },
+    });
+    if (!count) throw new HttpError(404, 'Esa persona no existe.');
+    loginFailures.clear();
+    return { password };
   });
 
   app.post('/api/admin/users', async (req) => {

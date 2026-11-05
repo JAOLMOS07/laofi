@@ -2,7 +2,7 @@
 import type { AvatarConfig } from './avatar.js';
 import type { FloorLayout, OfficeSpec, PlacedItem, RoomSpec } from './building.js';
 import type { Status } from './messages.js';
-import type { DeliverySource, DeliveryStatus, MeetingSource } from './workflow.js';
+import type { CurrentWork, DeliverySource, DeliveryStatus, MeetingSource } from './workflow.js';
 
 export type Role = 'ADMIN' | 'MEMBER';
 
@@ -23,6 +23,9 @@ export interface Me {
   avatar: AvatarConfig;
   cell: CellInfo | null;
   cellType: 'DEV' | 'QA' | 'INFRA' | null;
+  currentWork: CurrentWork | null;
+  /** Entró con contraseña temporal: debe cambiarla antes de usar la app. */
+  mustChangePassword: boolean;
   /** Piso donde está su oficina (el de su célula, o el Lobby para los jefes). */
   homeFloorId: string | null;
 }
@@ -75,6 +78,7 @@ export interface DirectoryEntry {
   roomId: string | null;
   /** Dónde queda su oficina. */
   homeFloorId: string | null;
+  currentWork: CurrentWork | null;
 }
 
 export interface NoteInfo {
@@ -125,6 +129,8 @@ export interface DeliveryInfo {
   /** Id del work item, por ejemplo "HU-1302". */
   externalId: string;
   title: string;
+  /** Link del work item en Azure DevOps. */
+  url: string | null;
   fromCell: { id: string; name: string; color: string };
   status: DeliveryStatus;
   source: DeliverySource;

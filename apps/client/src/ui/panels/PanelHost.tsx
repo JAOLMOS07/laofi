@@ -9,6 +9,7 @@ import { EditPanel } from './EditPanel';
 import { IntegrationsPanel } from './IntegrationsPanel';
 import { NotesPanel } from './NotesPanel';
 import { PersonPanel } from './PersonPanel';
+import { WorkPanel } from './WorkPanel';
 
 export function PanelHost() {
   const panel = useUi((s) => s.panel);
@@ -27,6 +28,7 @@ export function PanelHost() {
       {panel.kind === 'deliveries' && <DeliveriesPanel />}
       {panel.kind === 'agenda' && <AgendaPanel />}
       {panel.kind === 'integrations' && <IntegrationsPanel />}
+      {panel.kind === 'work' && <WorkPanel />}
     </aside>
   );
 }

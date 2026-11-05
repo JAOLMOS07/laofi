@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { startSession } from './actions';
 import { ApiError, api } from './net/api';
 import { useUi } from './state/store';
+import { ChangePassword } from './ui/ChangePassword';
 import { Login } from './ui/Login';
 import { Office } from './ui/Office';
 
@@ -20,5 +21,6 @@ export function App() {
   }, []);
 
   if (!booted) return <div className="boot">La Ofi</div>;
-  return me ? <Office /> : <Login />;
+  if (!me) return <Login />;
+  return me.mustChangePassword ? <ChangePassword /> : <Office />;
 }

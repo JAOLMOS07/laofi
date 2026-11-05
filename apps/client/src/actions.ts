@@ -109,6 +109,7 @@ meetingActions.back = () => void backToOffice();
 export async function startSession(me: Me): Promise<void> {
   const ui = useUi.getState();
   ui.set({ me });
+  if (me.mustChangePassword) return;
   await refreshBuilding();
   void refreshDeliveries();
   void refreshMeetings();

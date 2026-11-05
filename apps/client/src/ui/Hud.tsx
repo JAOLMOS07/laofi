@@ -1,6 +1,7 @@
 import { STATUSES, type Status } from '@laofi/shared';
 import { send } from '../net/floor';
 import { STATUS_INFO, useUi } from '../state/store';
+import { workLabel } from './common';
 import { Icon } from './icons';
 
 export function Hud() {
@@ -49,6 +50,13 @@ export function Hud() {
           <b>{me.name}</b>
           <span>{me.cell ? `Célula ${me.cell.name}` : (me.title ?? 'Sin célula')}</span>
         </div>
+        <button
+          className="work-btn"
+          onClick={() => useUi.getState().togglePanel('work')}
+          data-testid="work-open"
+        >
+          {me.currentWork ? workLabel(me.currentWork) : '¿En qué estás?'}
+        </button>
         <div className="status-wrap">
           <i className="dot" style={{ background: STATUS_INFO[status].color }} />
           <select

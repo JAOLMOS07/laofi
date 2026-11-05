@@ -5,10 +5,12 @@ import {
   type DeliveryStatus,
   canAdvanceDelivery,
   canCreateDelivery,
+  normalizeWorkItemUrl,
 } from '@laofi/shared';
 import type { Prisma } from '@prisma/client';
 import { HttpError, type SessionUser } from './api/http.js';
 import { prisma } from './db.js';
+import { env } from './env.js';
 import { presence } from './presence/PresenceService.js';
 
 const include = { fromCell: true, createdBy: { select: { name: true } } } as const;
@@ -20,6 +22,7 @@ const toInfo = (d: Row): DeliveryInfo => ({
   id: d.id,
   externalId: d.externalId,
   title: d.title,
+  url: d.url,
   fromCell: { id: d.fromCell.id, name: d.fromCell.name, color: d.fromCell.color },
   status: d.status,
   source: d.source,
@@ -39,7 +42,7 @@ export async function listDeliveries(now = new Date()): Promise<DeliveryInfo[]> 
   const rows = await prisma.delivery.findMany({
     where: {
       OR: [
-        { status: { in: ['SENT', 'TESTING', 'RETURNED'] } },
+        { status: { in: ['SENT', 'TESTING', 'RETURNED', 'APPROVED'] } },
         { updatedAt: { gte: new Date(now.getTime() - FINISHED_WINDOW_MS) } },
       ],
     },
@@ -57,6 +60,7 @@ export async function listDeliveries(now = new Date()): Promise<DeliveryInfo[]> 
 export async function recordDelivery(input: {
   externalId: string;
   title: string;
+  url?: string | null;
   fromCellId: string;
   source: DeliverySource;
   createdById?: string | null;
@@ -67,6 +71,7 @@ export async function recordDelivery(input: {
     data: {
       externalId: input.externalId,
       title: input.title,
+      url: input.url ?? null,
       fromCellId: input.fromCellId,
       source: input.source,
       createdById: input.createdById ?? null,
@@ -82,7 +87,12 @@ export async function recordDelivery(input: {
 
 export async function createDeliveryAs(
   u: SessionUser,
-  body: { externalId: string; title: string; fromCellId?: string | undefined },
+  body: {
+    externalId: string;
+    title: string;
+    fromCellId?: string | undefined;
+    url?: string | null | undefined;
+  },
 ): Promise<DeliveryInfo> {
   const actor = await actorOf(u);
   if (!canCreateDelivery(actor)) throw new HttpError(403, 'Las entregas salen de las células de desarrollo.');
@@ -91,9 +101,13 @@ export async function createDeliveryAs(
   if (!cell) throw new HttpError(400, 'Elige la célula que entrega.');
   if (cell.type !== 'DEV')
     throw new HttpError(400, 'La entrega tiene que salir de una célula de desarrollo.');
+  const raw = body.url?.trim();
+  const url = raw ? normalizeWorkItemUrl(raw, env.workItemHosts) : null;
+  if (raw && !url) throw new HttpError(400, 'Pega el link del work item de Azure DevOps.');
   return recordDelivery({
     externalId: body.externalId,
     title: body.title,
+    url,
     fromCellId: cell.id,
     source: 'MANUAL',
     createdById: u.id,

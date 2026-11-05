@@ -5,6 +5,7 @@ import {
   canAdvanceDelivery,
   canCreateDelivery,
 } from '@laofi/shared';
+import { workItemIdFromUrl } from '@laofi/shared';
 import { useState } from 'react';
 import { ApiError, api } from '../../net/api';
 import { refreshDeliveries } from '../../net/floor';
@@ -14,22 +15,23 @@ import { PanelHeader, timeStr } from '../common';
 const STATUS_LABEL: Record<DeliveryStatus, string> = {
   SENT: 'Enviadas',
   TESTING: 'En pruebas',
-  APPROVED: 'Aprobadas',
+  APPROVED: 'Por desplegar',
   RETURNED: 'Devueltas',
+  DEPLOYED: 'Desplegadas',
 };
 const ACTION_LABEL: Record<DeliveryStatus, string> = {
   SENT: 'Reenviar a QA',
   TESTING: 'Tomar en pruebas',
   APPROVED: 'Aprobar',
   RETURNED: 'Devolver',
+  DEPLOYED: 'Desplegar',
 };
-const ORDER: DeliveryStatus[] = ['SENT', 'TESTING', 'RETURNED', 'APPROVED'];
+const ORDER: DeliveryStatus[] = ['SENT', 'TESTING', 'RETURNED', 'APPROVED', 'DEPLOYED'];
 
 type Period = 'today' | 'week';
 
 function inPeriod(d: DeliveryInfo, period: Period): boolean {
-  if (d.status !== 'APPROVED' && d.status !== 'RETURNED') return true;
-  if (period === 'week') return true;
+  if (d.status !== 'DEPLOYED' || period === 'week') return true;
   return new Date(d.updatedAt).toDateString() === new Date().toDateString();
 }
 
@@ -61,7 +63,13 @@ function DeliveryCard({ d }: { d: DeliveryInfo }) {
     <div className={`dlv st-${d.status.toLowerCase()}`} data-testid="delivery">
       <div className="dlv-top">
         <i style={{ background: d.fromCell.color }} />
-        <b>{d.externalId}</b>
+        {d.url ? (
+          <a href={d.url} target="_blank" rel="noopener noreferrer">
+            <b>{d.externalId}</b>
+          </a>
+        ) : (
+          <b>{d.externalId}</b>
+        )}
         <span>{d.fromCell.name}</span>
         {d.source === 'DEMO' && <span className="pill demo">Demo</span>}
       </div>
@@ -119,6 +127,7 @@ function NewDelivery() {
   const [open, setOpen] = useState(false);
   const [externalId, setExternalId] = useState('');
   const [title, setTitle] = useState('');
+  const [url, setUrl] = useState('');
   const [cell, setCell] = useState('');
   const [error, setError] = useState<string | null>(null);
   if (!me || !canCreateDelivery(actorFrom(me))) return null;
@@ -131,10 +140,12 @@ function NewDelivery() {
       await api('POST', '/deliveries', {
         externalId,
         title,
+        url: url.trim() || null,
         ...(isAdmin && fromCellId ? { fromCellId } : {}),
       });
       setExternalId('');
       setTitle('');
+      setUrl('');
       setOpen(false);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -174,6 +185,17 @@ function NewDelivery() {
         minLength={3}
         maxLength={160}
         required
+      />
+      <input
+        className="input"
+        value={url}
+        onChange={(e) => {
+          setUrl(e.target.value);
+          const id = workItemIdFromUrl(e.target.value);
+          if (id && !externalId) setExternalId(id);
+        }}
+        placeholder="Link del work item (opcional)"
+        aria-label="Link del work item"
       />
       {isAdmin && (
         <select

@@ -5,3 +5,8 @@ coverage
 playwright-report
 test-results
 *.log
+.env.*
+!.env.example
+*.local
+*.local.txt
+*.local.json

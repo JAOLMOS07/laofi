@@ -1,4 +1,4 @@
-import type { AvatarConfig, Status } from '@laofi/shared';
+import { type AvatarConfig, type CurrentWork, type Status, WORK_ACTIVITY_LABEL } from '@laofi/shared';
 import { STATUS_INFO, useUi } from '../state/store';
 import { Icon } from './icons';
 
@@ -60,3 +60,22 @@ export const timeStr = (iso: string): string =>
     day: 'numeric',
     month: 'short',
   });
+
+export const workLabel = (w: CurrentWork): string => `${WORK_ACTIVITY_LABEL[w.activity]} ${w.itemId}`;
+
+/** "Desarrollando HU-1302", con link al work item si la persona lo puso. */
+export function WorkLink({ work }: { work: CurrentWork }) {
+  const text = workLabel(work);
+  return (
+    <>
+      {work.url ? (
+        <a href={work.url} target="_blank" rel="noopener noreferrer" data-testid="work-link">
+          {text}
+        </a>
+      ) : (
+        text
+      )}
+      {work.title ? ` · ${work.title}` : ''}
+    </>
+  );
+}

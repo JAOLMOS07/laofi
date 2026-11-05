@@ -268,6 +268,37 @@ describe('limpieza de 30 días', () => {
   });
 });
 
+describe('contraseñas', () => {
+  it('con contraseña temporal solo se puede cambiarla, y el admin la restablece', async () => {
+    const admin = await login('jhoger');
+    const camila = await login('camila');
+    const { status, data } = await admin.call<{ password: string }>(
+      'POST',
+      `/api/admin/users/${camila.me.id}/reset-password`,
+    );
+    expect(status).toBe(200);
+    expect((await camila.call('POST', `/api/admin/users/${admin.me.id}/reset-password`)).status).toBe(403);
+
+    expect((await camila.call('POST', '/api/auth/room-token')).status).toBe(403);
+    expect((await camila.call('GET', '/api/building')).status).toBe(403);
+    expect((await camila.call<Me>('GET', '/api/me')).data.mustChangePassword).toBe(true);
+
+    const change = (current: string, next: string) =>
+      camila.call<Me>('POST', '/api/me/password', { current, next });
+    expect((await change('mala', 'una-clave-larga')).status).toBe(400);
+    expect((await change(data.password, 'corta')).status).toBe(400);
+    expect((await change(data.password, 'una-clave-larga')).data.mustChangePassword).toBe(false);
+    expect((await camila.call('POST', '/api/auth/room-token')).status).toBe(200);
+    await expect(login('camila')).rejects.toThrow('401');
+    await expect(login('camila', 'una-clave-larga')).resolves.toBeTruthy();
+  });
+
+  it('frena a quien prueba contraseñas', async () => {
+    for (let i = 0; i < 8; i++) await expect(login('tomas', 'mala')).rejects.toThrow('401');
+    await expect(login('tomas')).rejects.toThrow('429');
+  });
+});
+
 describe('entregas y agenda', () => {
   let dev: Session;
   let qa: Session;
@@ -301,6 +332,46 @@ describe('entregas y agenda', () => {
     expect(again.data.note).toBeNull();
     await move(qa, d.id, 'TESTING');
     expect((await move(qa, d.id, 'APPROVED')).data.status).toBe('APPROVED');
+
+    // Lo aprobado sigue en la lista hasta que la célula lo despliega.
+    expect((await move(qa, d.id, 'DEPLOYED')).status).toBe(403);
+    expect((await move(dev, d.id, 'DEPLOYED')).data.status).toBe('DEPLOYED');
+  });
+
+  it('el link de la entrega tiene que ser de Azure DevOps', async () => {
+    const bad = await dev.call('POST', '/api/deliveries', {
+      externalId: 'HU-5',
+      title: 'Link malo',
+      url: 'https://evil.example.com/x',
+    });
+    expect(bad.status).toBe(400);
+    const url = 'https://dev.azure.com/empresa/p/_workitems/edit/5';
+    const ok = await dev.call<DeliveryInfo>('POST', '/api/deliveries', {
+      externalId: 'HU-5',
+      title: 'Link bueno',
+      url,
+    });
+    expect(ok.data.url).toBe(url);
+  });
+
+  it('lo que publicas en tu oficina se ve en vivo y en el directorio', async () => {
+    const rl = await enter(dev, 'axis');
+    const office = () =>
+      [...(rl.state as any).offices.values()].find((o: any) => o.ownerId === dev.me.id) as any;
+    const url = 'https://dev.azure.com/empresa/p/_workitems/edit/1302';
+    const put = (work: unknown) => dev.call('PUT', '/api/me/work', { work });
+
+    expect(
+      (await put({ activity: 'DEVELOPING', itemId: '1302', url: 'https://evil.example.com' })).status,
+    ).toBe(400);
+    expect((await put({ activity: 'DEVELOPING', itemId: '1302', title: 'Login', url })).status).toBe(200);
+    await waitFor(() => office().work.includes('1302'));
+    const entry = (await admin.call<any[]>('GET', '/api/directory')).data.find((p) => p.id === dev.me.id);
+    expect(entry.currentWork.url).toBe(url);
+
+    await put(null);
+    await waitFor(() => office().work === '');
+    expect((await dev.call<Me>('GET', '/api/me')).data.currentWork).toBeNull();
   });
 
   it('no se puede entregar desde QA aunque seas admin', async () => {

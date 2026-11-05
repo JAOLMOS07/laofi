@@ -36,6 +36,8 @@ export const OfficeState = schema(
     doorClosed: t.boolean(),
     /** Post-its sin leer sobre el escritorio. */
     unreadNotes: t.number(),
+    /** CurrentWork en JSON, o "" si no publicó nada. */
+    work: t.string(),
   },
   'OfficeState',
 );

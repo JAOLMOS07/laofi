@@ -2,11 +2,14 @@ import {
   AdvanceDeliverySchema,
   CreateDeliverySchema,
   CreateMeetingSchema,
+  type CurrentWork,
+  CurrentWorkInputSchema,
   type DeliveryInfo,
   type MeetingInfo,
   type RoomRef,
 } from '@laofi/shared';
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '../db.js';
 import { advanceDelivery, createDeliveryAs, listDeliveries } from '../deliveries.js';
 import {
@@ -16,10 +19,18 @@ import {
 } from '../integrations/devops/simulator.js';
 import { tickMeetings } from '../jobs/meetings.js';
 import { createMeeting, listMeetings, listRooms } from '../meetings.js';
+import { setCurrentWork } from '../work.js';
 import { HttpError, parse, requireAdmin, requireUser } from './http.js';
 
 /** Rutas de la Fase 2: entregas a QA, agenda y los botones de simulación para la demo. */
 export function registerWorkflowRoutes(app: FastifyInstance): void {
+  /** Publica en qué estás (se ve en tu oficina) o lo quita con null. */
+  app.put('/api/me/work', async (req): Promise<{ work: CurrentWork | null }> => {
+    const u = await requireUser(req);
+    const { work } = parse(z.object({ work: CurrentWorkInputSchema.nullable() }), req.body);
+    return { work: await setCurrentWork(u.id, work) };
+  });
+
   app.get('/api/deliveries', async (req): Promise<DeliveryInfo[]> => {
     await requireUser(req);
     return listDeliveries();

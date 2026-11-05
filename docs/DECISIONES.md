@@ -34,6 +34,30 @@ Registro de decisiones con fecha y razón. Lo más nuevo va arriba.
 
 **Las pruebas de integración y la e2e vuelven a sembrar la base de desarrollo.** Prueban contra Postgres real (no mocks). Por eso nunca deben apuntar a una base con datos reales.
 
+## 2026-11-05 · Hosting en Render + Neon
+
+**Render gratis y Neon gratis.** Cumple el principio de costo cero y Render admite WebSockets. A cambio, el servicio se apaga sin tráfico y arranca lento. Las presencias y rooms viven en memoria, así que se pierden al apagarse; se reconstruyen al volver a entrar y lo persistente está en Postgres. Región Virginia en ambos para que queden cerca.
+
+**Un solo puerto en producción.** Render expone un puerto por servicio. Colyseus es dueño del servidor HTTP (WebSockets y `/matchmake`) y le pasa lo demás a Fastify con `routing()` desde su opción `express`. La documentación de Colyseus no cubre Fastify, así que esto se verificó contra el código de `@colyseus/core` 0.18 y con un build real en dos navegadores. En desarrollo siguen los dos puertos.
+
+**Sin `laofi123` en producción.** `db:seed:prod` crea una contraseña temporal aleatoria por persona, no borra nada y se niega si ya hay usuarios. Con `mustChangePassword`, el servidor rechaza todo salvo cambiarla, incluida la entrada a las rooms. El seed de desarrollo se niega a correr con `NODE_ENV=production`.
+
+**Los correos del equipo no van al repositorio.** `db:seed:prod` los lee de `equipo.local.json`, ignorado por git, y no usa las cuentas de ejemplo.
+
+**Límite de intentos de login.** Al quedar en internet, ocho fallos por email bloquean quince minutos. Está en memoria, igual que la presencia: alcanza con una sola instancia.
+
+## 2026-11-03 · Despliegues y trabajo actual
+
+**La entrega termina en el despliegue, no en la aprobación de QA.** El equipo entrega a QA y despliega cuando QA termina, así que se agregó el estado `DEPLOYED` después de `APPROVED`. Solo la célula de origen despliega. El documento maestro lista cuatro estados de entrega; manda esta decisión hasta actualizarlo.
+
+**El trencito se adelantó de la Fase 3, marcado a mano.** Sale cuando la célula pulsa "Desplegar". Los eventos reales del pipeline siguen pendientes; cuando existan, alimentarán el mismo paso.
+
+**"En qué estás" es manual y lo controla cada persona.** Coincide con la regla de privacidad: no se lee actividad ni se detecta nada. Se guarda en `User.currentWork` y viaja en la room por oficina, para que se vea en vivo.
+
+**Los carteles de las oficinas son DOM, no texturas.** Así el link es un link real (clic derecho, abrir en otra pestaña) y el texto se ve nítido con cualquier zoom.
+
+**Los links de work items solo aceptan Azure DevOps.** Se abren con un clic desde la oficina de alguien, igual que los de Teams no aceptan otros sitios. Si usan un servidor propio, se agrega su host en `WORK_ITEM_HOSTS`.
+
 ## 2026-11-03 · Fase 2 sin integraciones externas
 
 **Primero el flujo, después la fuente de datos.** Aún no se sabe cómo marcan una entrega en Azure DevOps ni si TI permite Graph. Se construyó todo lo visible con entrada manual, y `recordDelivery` y `Meeting` son el punto único de entrada: el webhook y el calendario solo tendrán que alimentarlos. Ninguna integración es requisito para que la app funcione.

@@ -50,7 +50,8 @@ Para ver el multijugador, abre otra ventana en modo incógnito (o otro navegador
 - **Walkie-talkie**: mantén `Espacio` o el botón Walkie. Le hablas a la sala donde estás, o a todo el piso, o a una persona si la eliges desde su ficha.
 - **Mi oficina**: catálogo de muebles, rotar (`R`), mover, recolorear, quitar, y colores de pared y piso. Solo tú editas la tuya; los demás ven los cambios en vivo.
 - **Mi avatar**: piel, peinado, ropa y accesorios.
-- **Entregas**: desde el dock registras una entrega y su caja viaja al muelle del piso de QA. QA la toma en pruebas, la aprueba o la devuelve con el motivo; la devuelta aparece en rojo junto al ascensor de la célula, que puede reenviarla. El tablero del Lobby cuenta las de hoy.
+- **En qué estás**: el botón junto a tu estado publica tu HU (“Desarrollando HU-1302”) sobre tu oficina. Si pegas el link del work item, el clic lleva a Azure DevOps. Desde ahí mismo la entregas a QA o la quitas. Nada se detecta solo.
+- **Entregas y despliegues**: registras una entrega y su caja viaja al muelle del piso de QA. QA la toma en pruebas, la aprueba o la devuelve con el motivo. Lo que vuelve aparece junto al ascensor de la célula: en rojo para arreglar y reenviar, en verde para desplegar. Al desplegar, un trencito cruza el piso. El tablero del Lobby lo resume.
 - **Agenda**: agregas una reunión con hora, sala y link de Teams opcional. Un minuto antes llega “Tu reunión empieza: ¿vamos?”, te lleva a la sala y al terminar te ofrece volver a tu oficina. “Probar el aviso ahora” lo muestra de inmediato.
 - **Integraciones**: qué funciona hoy, qué es demo y qué necesita a TI. Un admin puede simular entregas de Azure DevOps, cargar ejemplos y quitarlos.
 
@@ -79,6 +80,25 @@ pnpm --filter @laofi/server db:deploy
 3. Comparte `http://192.168.1.20:5173`. Windows puede pedir permitir los puertos 5173 y 2567 en el firewall.
 
 Para alguien fuera de tu red hace falta un túnel (por ejemplo Cloudflare Tunnel, gratis) hacia los puertos 5173 y 2567; eso queda para cuando lo necesites.
+
+## Publicar en Render + Neon
+
+Producción usa un solo puerto: el mismo servidor entrega la API, el cliente y el multijugador. La base es Neon y el servicio se define en [`render.yaml`](./render.yaml). La voz queda apagada.
+
+1. Crea un proyecto en Neon y guarda su cadena de conexión **directa** (no la pooled) solo en tu máquina.
+2. Prepara la base una sola vez, desde tu PC. El seed de producción nunca borra: si la base ya tiene usuarios, se niega. Lee las cuentas de `equipo.local.json`, ignorado por git: una lista de `{ "email", "name", "cell", "admin"? }`.
+
+   ```powershell
+   $env:DATABASE_URL = '<cadena de Neon>'
+   pnpm --filter @laofi/server exec prisma migrate deploy
+   pnpm --filter @laofi/server db:seed:prod
+   ```
+
+   Las contraseñas temporales quedan en `credenciales-temporales.local.txt`, ignorado por git. Repártelas por un canal privado; cada persona debe cambiar la suya al entrar. Si alguien la pierde, un admin la restablece en **Admin → Personas**.
+
+3. En Render: **New → Blueprint**, elige el repositorio y pega la misma cadena en `DATABASE_URL`. `SESSION_SECRET` se genera solo.
+
+El plan gratis de Render se apaga tras unos minutos sin tráfico: la primera visita después de eso tarda cerca de un minuto. Nunca corras `pnpm test`, `pnpm e2e` ni `db:seed` contra Neon: borran y resiembran.
 
 ## Correr todo con Docker Compose
 

@@ -1,0 +1,22 @@
+# Blueprint de Render: un solo servicio web gratis que sirve la API, el cliente y el multijugador.
+# Las migraciones corren al arrancar porque el plan gratis no tiene pre-deploy.
+services:
+  - type: web
+    name: laofi
+    runtime: node
+    plan: free
+    region: virginia
+    branch: master
+    healthCheckPath: /api/health
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @laofi/client build
+    startCommand: pnpm --filter @laofi/server exec prisma migrate deploy && pnpm --filter @laofi/server start:prod
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.4
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      # Cadena de conexión directa (no pooled) de Neon: se pega en el panel de Render, nunca aquí.
+      - key: DATABASE_URL
+        sync: false

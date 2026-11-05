@@ -8,6 +8,9 @@ import {
   featureBlocks,
   floorFeatures,
   isWalkable,
+  normalizeWorkItemUrl,
+  parseCurrentWork,
+  workItemIdFromUrl,
 } from '../src/index.js';
 
 const dev: DeliveryActor = { role: 'MEMBER', cellId: 'axis', cellType: 'DEV' };
@@ -43,6 +46,51 @@ describe('reglas de entregas', () => {
     expect(canAdvanceDelivery(dev, returned, 'SENT')).toBe(true);
     expect(canAdvanceDelivery(otherDev, returned, 'SENT')).toBe(false);
     expect(canAdvanceDelivery(qa, returned, 'SENT')).toBe(false);
+  });
+});
+
+describe('despliegue', () => {
+  const approved = { fromCellId: 'axis', status: 'APPROVED' as const };
+  it('lo aprobado lo despliega la célula de origen, no QA ni otra célula', () => {
+    expect(canAdvanceDelivery(dev, approved, 'DEPLOYED')).toBe(true);
+    expect(canAdvanceDelivery(qa, approved, 'DEPLOYED')).toBe(false);
+    expect(canAdvanceDelivery(otherDev, approved, 'DEPLOYED')).toBe(false);
+    expect(canAdvanceDelivery(admin, approved, 'DEPLOYED')).toBe(true);
+  });
+  it('no se despliega sin aprobación de QA', () => {
+    expect(canAdvanceDelivery(dev, { fromCellId: 'axis', status: 'TESTING' }, 'DEPLOYED')).toBe(false);
+    expect(canAdvanceDelivery(admin, { fromCellId: 'axis', status: 'SENT' }, 'DEPLOYED')).toBe(false);
+  });
+});
+
+describe('work items', () => {
+  const link = 'https://dev.azure.com/empresa/proyecto/_workitems/edit/1302';
+  it('acepta Azure DevOps y rechaza otros sitios', () => {
+    expect(normalizeWorkItemUrl(link)).toBe(link);
+    expect(normalizeWorkItemUrl('https://empresa.visualstudio.com/p/_workitems/edit/1')).toBeTruthy();
+    expect(normalizeWorkItemUrl('https://evil.example.com/_workitems/edit/1')).toBeNull();
+    expect(normalizeWorkItemUrl('https://dev.azure.com.evil.example.com/x')).toBeNull();
+    expect(normalizeWorkItemUrl('http://dev.azure.com/x')).toBeNull();
+    expect(normalizeWorkItemUrl('javascript:alert(1)')).toBeNull();
+  });
+  it('acepta un host propio solo si se configura', () => {
+    const own = 'https://devops.empresa.com/x/_workitems/edit/9';
+    expect(normalizeWorkItemUrl(own)).toBeNull();
+    expect(normalizeWorkItemUrl(own, ['devops.empresa.com'])).toBe(own);
+  });
+  it('saca el id del link', () => {
+    expect(workItemIdFromUrl(link)).toBe('1302');
+    expect(workItemIdFromUrl('https://dev.azure.com/empresa')).toBeNull();
+  });
+  it('ignora datos guardados que no tengan la forma esperada', () => {
+    expect(parseCurrentWork(null)).toBeNull();
+    expect(parseCurrentWork({ activity: 'NADA', itemId: 'x' })).toBeNull();
+    expect(parseCurrentWork({ activity: 'DEVELOPING', itemId: 'HU-1' })).toEqual({
+      activity: 'DEVELOPING',
+      itemId: 'HU-1',
+      title: null,
+      url: null,
+    });
   });
 });
 

@@ -11,13 +11,14 @@ import {
   floorFeatures,
 } from '@laofi/shared';
 import * as THREE from 'three';
-import { SHARED_GEOMETRIES, box, plane, textTex } from './models';
+import { SHARED_GEOMETRIES, box, plane, shade, textTex } from './models';
 
 export const DELIVERY_COLORS: Record<DeliveryStatus, string> = {
   SENT: '#c9a26b',
   TESTING: '#5b8fd6',
   APPROVED: '#3faa6b',
   RETURNED: '#d9534f',
+  DEPLOYED: '#7a5fc2',
 };
 
 const DOCK_COLS = 5;
@@ -123,12 +124,21 @@ export class DeliveryLayer {
         this.inFlight.add(d.id);
         this.fly(d, 'RETURNED', lift, this.traySlot(count), 1.8, () => this.land(d.id));
       }
-    } else if (d.status === 'APPROVED' && dock) {
-      const i = onDock.findIndex((x) => x.id === d.id);
-      if (i >= 0) {
-        const from = this.dockSlot(dock, i);
-        this.fly(d, 'APPROVED', from, from.clone().setY(from.y + 3), 1.3);
+    } else if (d.status === 'APPROVED' && previous) {
+      if (dock) {
+        const i = onDock.findIndex((x) => x.id === d.id);
+        if (i >= 0) {
+          const from = this.dockSlot(dock, i);
+          this.fly(d, 'APPROVED', from, from.clone().setY(from.y + 3), 1.3);
+        }
       }
+      if (isOrigin) {
+        const count = this.tray().length;
+        this.inFlight.add(d.id);
+        this.fly(d, 'APPROVED', lift, this.traySlot(count), 1.8, () => this.land(d.id));
+      }
+    } else if (d.status === 'DEPLOYED' && previous && isOrigin) {
+      this.train(d);
     }
   }
 
@@ -177,13 +187,37 @@ export class DeliveryLayer {
     this.flights.push({ obj, from, to, t: 0, dur, arc: 0.7, ...(onDone ? { onDone } : {}) });
   }
 
+  /** El trencito del despliegue cruza el piso de la célula de lado a lado. */
+  private train(d: DeliveryInfo): void {
+    const f = this.floor!;
+    const color = d.fromCell.color;
+    const g = new THREE.Group();
+    g.add(box(1.3, 0.55, 0.7, color, 0, 0.32, 0));
+    g.add(box(0.5, 0.45, 0.68, shade(color, -0.2), -0.35, 0.8, 0));
+    g.add(box(0.16, 0.3, 0.16, '#3a3f47', 0.42, 0.75, 0));
+    for (const x of [-1.6, -3.1]) {
+      g.add(box(1.2, 0.14, 0.66, '#3a3f47', x, 0.12, 0));
+      const cargo = makeBox(d, 'DEPLOYED');
+      cargo.position.set(x, 0.18, 0);
+      g.add(cargo);
+    }
+    const z = f.layout.spawn.y - 2.5;
+    const from = new THREE.Vector3(-2, 0, z);
+    const to = new THREE.Vector3(f.layout.width + 5, 0, z);
+    g.position.copy(from);
+    this.flying.add(g);
+    this.flights.push({ obj: g, from, to, t: 0, dur: 7, arc: 0 });
+  }
+
   private docked(): DeliveryInfo[] {
     return this.list.filter(isActive).sort(byAge);
   }
 
   private tray(): DeliveryInfo[] {
     const cell = this.floor?.cell?.id;
-    return this.list.filter((d) => d.status === 'RETURNED' && d.fromCell.id === cell).sort(byAge);
+    return this.list
+      .filter((d) => (d.status === 'RETURNED' || d.status === 'APPROVED') && d.fromCell.id === cell)
+      .sort(byAge);
   }
 
   private dockSlot(dock: Rect, i: number): THREE.Vector3 {
@@ -197,7 +231,7 @@ export class DeliveryLayer {
     );
   }
 
-  /** Bandeja de devoluciones, en el pasillo junto al ascensor del piso de origen. */
+  /** Bandeja de lo que volvió de QA (rojo: arreglar; verde: desplegar), en el pasillo junto al ascensor del piso de origen. */
   private traySlot(i: number): THREE.Vector3 {
     const e = this.floor!.layout.elevator;
     return new THREE.Vector3(e.x - 2.5 + (i % TRAY_MAX) * 0.95, 0, e.y - 2.5);
@@ -280,15 +314,14 @@ export class DeliveryLayer {
     const today = new Date().toDateString();
     const count = (s: DeliveryStatus): number =>
       this.list.filter(
-        (d) =>
-          d.status === s &&
-          (s === 'SENT' || s === 'TESTING' || new Date(d.updatedAt).toDateString() === today),
+        (d) => d.status === s && (s !== 'DEPLOYED' || new Date(d.updatedAt).toDateString() === today),
       ).length;
     const cols: Array<[string, DeliveryStatus]> = [
       ['Enviadas', 'SENT'],
       ['En pruebas', 'TESTING'],
-      ['Aprobadas', 'APPROVED'],
       ['Devueltas', 'RETURNED'],
+      ['Por desplegar', 'APPROVED'],
+      ['Desplegadas', 'DEPLOYED'],
     ];
     const tex = textTex('', {
       w: 768,
@@ -299,14 +332,14 @@ export class DeliveryLayer {
         g.textAlign = 'center';
         g.fillStyle = '#efe8dd';
         g.font = '600 44px Fredoka, sans-serif';
-        g.fillText('Entregas de hoy', w / 2, 56);
+        g.fillText('Entregas', w / 2, 56);
         cols.forEach(([label, status], i) => {
-          const x = (w / 4) * (i + 0.5);
+          const x = (w / cols.length) * (i + 0.5);
           g.fillStyle = DELIVERY_COLORS[status];
           g.font = '700 104px Fredoka, sans-serif';
           g.fillText(String(count(status)), x, 196);
           g.fillStyle = '#c9c2b5';
-          g.font = '600 30px Figtree, sans-serif';
+          g.font = '600 24px Figtree, sans-serif';
           g.fillText(label, x, 296);
         });
       },

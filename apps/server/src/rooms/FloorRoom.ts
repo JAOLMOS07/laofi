@@ -4,6 +4,7 @@ import {
   ClientMessages,
   type ClientMessage,
   type ClientMessageType,
+  type CurrentWork,
   type FloorGeometry,
   type FurnitureKey,
   JoinOptionsSchema,
@@ -26,6 +27,7 @@ import {
   footprint,
   isWalkable,
   parseAvatar,
+  parseCurrentWork,
   rectContains,
   stepAlongPath,
   tileAt,
@@ -52,6 +54,7 @@ interface AuthUser {
 }
 
 const silentStatuses: Status[] = ['FOCUS', 'AWAY'];
+const workJson = (w: CurrentWork | null): string => (w ? JSON.stringify(w) : '');
 
 /**
  * Una instancia por piso o zona. El servidor es la autoridad de la posición y de todo cambio:
@@ -80,7 +83,10 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
 
     const owners = view.offices.map((o) => o.ownerId).filter((id): id is string => !!id);
     const [statuses, unread] = await Promise.all([
-      prisma.user.findMany({ where: { id: { in: owners } }, select: { id: true, status: true } }),
+      prisma.user.findMany({
+        where: { id: { in: owners } },
+        select: { id: true, status: true, currentWork: true },
+      }),
       prisma.note.groupBy({
         by: ['toUserId'],
         where: { toUserId: { in: owners }, readAt: null },
@@ -93,6 +99,7 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
       s.wallColor = o.wallColor ?? '';
       s.floorColor = o.floorColor ?? '';
       s.unreadNotes = unread.find((u) => u.toUserId === o.ownerId)?._count ?? 0;
+      s.work = workJson(parseCurrentWork(statuses.find((u) => u.id === o.ownerId)?.currentWork));
       this.state.offices.set(o.id, s);
       this.setDoor(
         o.id,
@@ -218,11 +225,15 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
       s.wallColor = o.wallColor ?? '';
       s.floorColor = o.floorColor ?? '';
       const owner = o.ownerId
-        ? await prisma.user.findUnique({ where: { id: o.ownerId }, select: { status: true } })
+        ? await prisma.user.findUnique({
+            where: { id: o.ownerId },
+            select: { status: true, currentWork: true },
+          })
         : null;
       s.unreadNotes = o.ownerId
         ? await prisma.note.count({ where: { toUserId: o.ownerId, readAt: null } })
         : 0;
+      s.work = workJson(parseCurrentWork(owner?.currentWork));
       this.setDoor(o.id, silentStatuses.includes(owner?.status ?? 'AVAILABLE'));
     }
     for (const [sid, p] of this.state.players) {
@@ -250,6 +261,12 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
         const u = this.users.get(sid);
         if (u) u.avatar = avatarJson;
       }
+  }
+
+  setUserWork(userId: string, work: CurrentWork | null): void {
+    const office = this.view.offices.find((o) => o.ownerId === userId);
+    const s = office && this.state.offices.get(office.id);
+    if (s) s.work = workJson(work);
   }
 
   async refreshNotes(userId: string): Promise<void> {

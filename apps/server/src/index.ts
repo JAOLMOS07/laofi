@@ -4,12 +4,20 @@ import { env } from './env.js';
 import { startMeetingJob } from './jobs/meetings.js';
 import { startRetentionJob } from './jobs/retention.js';
 
-const { http, game } = createApp();
-await game.listen(env.wsPort);
-await http.listen({ port: env.apiPort, host: '0.0.0.0' });
+const { http, game } = createApp({ singlePort: env.production });
+if (env.production) {
+  await game.listen(env.port, '0.0.0.0');
+} else {
+  await game.listen(env.wsPort);
+  await http.listen({ port: env.apiPort, host: '0.0.0.0' });
+}
 const stopJob = startRetentionJob();
 const stopMeetings = startMeetingJob();
-console.log(`[la-ofi] multijugador en ws://localhost:${env.wsPort} · API en http://localhost:${env.apiPort}`);
+console.log(
+  env.production
+    ? `[la-ofi] en el puerto ${env.port}`
+    : `[la-ofi] multijugador en ws://localhost:${env.wsPort} · API en http://localhost:${env.apiPort}`,
+);
 
 const shutdown = (): void => {
   stopJob();

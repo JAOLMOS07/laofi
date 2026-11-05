@@ -4,6 +4,7 @@
  */
 import {
   CATALOG,
+  type CurrentWork,
   type FloorInfo,
   type FurnitureKey,
   type OfficeInfo,
@@ -15,6 +16,7 @@ import {
   footprint,
   rectContains,
   validatePlacement,
+  WORK_ACTIVITY_LABEL,
 } from '@laofi/shared';
 import * as THREE from 'three';
 import {
@@ -136,6 +138,8 @@ export class Engine {
   private raf = 0;
   private unsub: Array<() => void> = [];
   private atElevator = false;
+  /** Carteles "Desarrollando HU-…" sobre las oficinas. Son DOM para que el link sea un link. */
+  private workCards: Array<{ el: HTMLElement; pos: THREE.Vector3 }> = [];
   private v3 = new THREE.Vector3();
 
   constructor(
@@ -201,6 +205,7 @@ export class Engine {
 
   dispose(): void {
     setDeliveryListener(null);
+    this.clearWorkCards();
     this.deliveries.dispose();
     cancelAnimationFrame(this.raf);
     this.unsub.forEach((u) => u());
@@ -455,6 +460,7 @@ export class Engine {
         'rgba(60,45,30,.25)',
       );
 
+    this.syncWorkCards();
     this.applyCutaway(true);
     this.syncEdit();
   }
@@ -491,6 +497,40 @@ export class Engine {
         pn.rotation.y = i * 0.3;
         this.staticGroup.add(pn);
       }
+    }
+  }
+
+  private clearWorkCards(): void {
+    for (const c of this.workCards) c.el.remove();
+    this.workCards = [];
+  }
+
+  private workCard(office: OfficeInfo, work: CurrentWork): HTMLElement {
+    const el = document.createElement(work.url ? 'a' : 'button');
+    if (el instanceof HTMLAnchorElement) {
+      el.href = work.url!;
+      el.target = '_blank';
+      el.rel = 'noopener noreferrer';
+    } else {
+      el.addEventListener('click', () => {
+        if (office.ownerId) useUi.getState().openPanel('person', office.ownerId);
+      });
+    }
+    el.className = 'work-card';
+    el.textContent = `${WORK_ACTIVITY_LABEL[work.activity]} ${work.itemId}`;
+    if (work.title) el.title = work.title;
+    el.dataset.testid = `work-${office.ownerId}`;
+    return el;
+  }
+
+  private syncWorkCards(): void {
+    this.clearWorkCards();
+    for (const o of this.floor?.offices ?? []) {
+      const work = live.offices.get(o.id)?.work;
+      if (!work) continue;
+      const el = this.workCard(o, work);
+      this.labels.appendChild(el);
+      this.workCards.push({ el, pos: new THREE.Vector3(o.x + o.w / 2, 1.9, o.y + o.d / 2) });
     }
   }
 
@@ -924,6 +964,12 @@ export class Engine {
       const y = (-this.v3.y * 0.5 + 0.5) * h;
       a.tag.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
       a.tag.style.display = this.v3.z > 1 ? 'none' : '';
+    }
+    for (const c of this.workCards) {
+      this.v3.copy(c.pos).project(this.camera);
+      const x = (this.v3.x * 0.5 + 0.5) * w;
+      const y = (-this.v3.y * 0.5 + 0.5) * h;
+      c.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
     }
     this.raf = requestAnimationFrame((t) => this.frame(t));
   }

@@ -13,6 +13,7 @@ const SAMPLES: Array<{ title: string; status: DeliveryStatus; note?: string }> =
   { title: 'Filtro por fecha en reportes', status: 'TESTING' },
   { title: 'Reintentos al subir archivos', status: 'TESTING' },
   { title: 'Exportar consulta a Excel', status: 'APPROVED' },
+  { title: 'Ajuste de permisos por rol', status: 'DEPLOYED' },
   { title: 'Paginación del historial', status: 'RETURNED', note: 'Bug: la página 2 repite resultados' },
 ];
 

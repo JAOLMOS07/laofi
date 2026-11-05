@@ -9,6 +9,7 @@ import {
   type CellInfo,
   type ClientMessage,
   type ClientMessageType,
+  type CurrentWork,
   type DeliveryInfo,
   type DeliveryStatus,
   FLOOR_ROOM,
@@ -21,6 +22,7 @@ import {
   type Status,
   type VoiceMode,
   parseAvatar,
+  parseCurrentWork,
 } from '@laofi/shared';
 import { firstName, useUi } from '../state/store';
 import { api } from './api';
@@ -58,6 +60,8 @@ export interface OfficeSnap {
   floorColor: string;
   doorClosed: boolean;
   unreadNotes: number;
+  work: CurrentWork | null;
+  workRaw: string;
 }
 
 export const live = {
@@ -66,9 +70,11 @@ export const live = {
   offices: new Map<string, OfficeSnap>(),
 };
 
-const SERVER_URL: string =
-  import.meta.env.VITE_SERVER_URL ||
-  `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:2567`;
+const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws';
+/** En producción todo va por el mismo origen; en desarrollo el multijugador tiene su puerto. */
+const SERVER_URL: string = import.meta.env.PROD
+  ? `${WS_PROTOCOL}://${location.host}`
+  : import.meta.env.VITE_SERVER_URL || `${WS_PROTOCOL}://${location.hostname}:2567`;
 
 /** Las acciones viven en actions.ts, que importa este módulo: se conectan al arrancar. */
 export const meetingActions: { accept?: (m: MeetingInfo) => void; back?: () => void } = {};
@@ -137,7 +143,12 @@ function deliveryToast(d: DeliveryInfo, previous: DeliveryStatus | null): void {
     });
   } else if (previous && me.cell?.id === d.fromCell.id && d.status === 'APPROVED') {
     chime();
-    ui.toast({ title: `QA aprobó ${d.externalId}`, text: d.title, icon: 'box', actions: [open] });
+    ui.toast({
+      title: `QA aprobó ${d.externalId}`,
+      text: `${d.title}. Lista para desplegar.`,
+      icon: 'box',
+      actions: [open],
+    });
   } else if (previous && me.cell?.id === d.fromCell.id && d.status === 'RETURNED') {
     chime();
     ui.toast({
@@ -146,6 +157,9 @@ function deliveryToast(d: DeliveryInfo, previous: DeliveryStatus | null): void {
       icon: 'box',
       actions: [open],
     });
+  } else if (previous && d.status === 'DEPLOYED' && (me.cell?.id === d.fromCell.id || me.cellType === 'QA')) {
+    chime();
+    ui.toast({ title: `${d.externalId} desplegada`, text: d.title, icon: 'box', actions: [open] });
   }
 }
 
@@ -390,6 +404,15 @@ function rejectText(action: string, reason: string): string {
   return m[reason] ?? `No se pudo (${action}: ${reason}).`;
 }
 
+function parseWork(raw: string): CurrentWork | null {
+  if (!raw) return null;
+  try {
+    return parseCurrentWork(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function sync(state: any, floorId: string): void {
   const ui = useUi.getState();
@@ -463,6 +486,8 @@ function sync(state: any, floorId: string): void {
       floorColor: String(o.floorColor ?? ''),
       doorClosed: Boolean(o.doorClosed),
       unreadNotes: Number(o.unreadNotes),
+      work: parseWork(String(o.work ?? '')),
+      workRaw: String(o.work ?? ''),
     }),
   );
   const sig = JSON.stringify([...live.furniture.values()]) + JSON.stringify([...live.offices.values()]);

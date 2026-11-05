@@ -36,10 +36,32 @@ const ITEMS: Item[] = [
     what: 'Registro a mano, caja al muelle, estados y tablero en el Lobby.',
   },
   {
+    name: 'Despliegues',
+    level: 'ok',
+    what: 'Lo que QA aprueba vuelve a la célula; al desplegarlo, el trencito cruza el piso.',
+  },
+  {
+    name: 'En qué trabaja cada quien',
+    level: 'ok',
+    what: 'Cada persona publica su HU en su oficina, con clic al work item.',
+  },
+  {
     name: 'Entregas automáticas desde Azure DevOps',
     level: 'demo',
     what: 'La caja saldría sola cuando el work item pase al estado acordado. Hoy se simula.',
     needs: 'Saber cómo marcan una entrega a QA y una URL pública para el webhook.',
+  },
+  {
+    name: 'Despliegues automáticos',
+    level: 'demo',
+    what: 'El trencito saldría solo con el pipeline, y un fallo pondría la sala en rojo. Hoy se marca a mano.',
+    needs: 'Eventos de los pipelines de Azure DevOps o AWS y una URL pública.',
+  },
+  {
+    name: 'Mis HU desde Azure Boards',
+    level: 'later',
+    what: 'Elegir tu HU de una lista en vez de pegar el link.',
+    needs: 'Un acceso de solo lectura a Azure DevOps.',
   },
   {
     name: 'Calendario de Outlook',
@@ -66,10 +88,10 @@ const ITEMS: Item[] = [
     needs: 'La misma app registrada en Microsoft Entra ID.',
   },
   {
-    name: 'Deploys y logros',
+    name: 'Logros e invitados',
     level: 'later',
-    what: 'Trencito de deploys por piso, trofeos opcionales e invitados de otros equipos en las salas.',
-    needs: 'Eventos de los pipelines y del calendario.',
+    what: 'Trofeos opcionales e invitados de otros equipos en las salas.',
+    needs: 'Eventos de DevOps y del calendario.',
   },
 ];
 
