@@ -26,6 +26,8 @@ export interface SeedUser {
   cell: string | null;
   title?: string;
   admin?: boolean;
+  /** Sin célula, con oficina en el Lobby. */
+  lobby?: boolean;
   avatar: AvatarConfig;
 }
 

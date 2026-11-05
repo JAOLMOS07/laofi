@@ -293,6 +293,22 @@ describe('contraseñas', () => {
     await expect(login('camila', 'una-clave-larga')).resolves.toBeTruthy();
   });
 
+  it('una persona nueva recibe contraseña temporal y debe cambiarla', async () => {
+    const admin = await login('jhoger');
+    const body = { name: 'QA Prueba', email: 'qa.prueba@laofi.local', cellId: 'qa' };
+    expect((await (await login('laura')).call('POST', '/api/admin/users', body)).status).toBe(403);
+    const { status, data } = await admin.call<{ user: Me; password: string }>(
+      'POST',
+      '/api/admin/users',
+      body,
+    );
+    expect(status).toBe(200);
+    expect(data.user.mustChangePassword).toBe(true);
+    expect(data.password.length).toBeGreaterThanOrEqual(12);
+    await expect(login('qa.prueba', data.password)).resolves.toBeTruthy();
+    expect((await admin.call('POST', '/api/admin/users', body)).status).toBe(409);
+  });
+
   it('frena a quien prueba contraseñas', async () => {
     for (let i = 0; i < 8; i++) await expect(login('tomas', 'mala')).rejects.toThrow('401');
     await expect(login('tomas')).rejects.toThrow('429');

@@ -452,7 +452,6 @@ export function registerRoutes(app: FastifyInstance): void {
       UserPatch.extend({
         email: z.string().trim().toLowerCase().email().max(200),
         name: z.string().trim().min(1).max(80),
-        password: z.string().min(8).max(200),
       }),
       req.body,
     );
@@ -460,6 +459,7 @@ export function registerRoutes(app: FastifyInstance): void {
       throw new HttpError(409, 'Ya hay alguien con ese email.');
     if (body.cellId && !(await prisma.cell.findUnique({ where: { id: body.cellId } })))
       throw new HttpError(400, 'Esa célula no existe.');
+    const password = temporaryPassword();
     const u = await prisma.user.create({
       data: {
         email: body.email,
@@ -467,12 +467,13 @@ export function registerRoutes(app: FastifyInstance): void {
         title: body.title ?? null,
         role: body.role ?? 'MEMBER',
         cellId: body.cellId ?? null,
-        passwordHash: await hashPassword(body.password),
+        passwordHash: await hashPassword(password),
+        mustChangePassword: true,
         avatarConfig: parseAvatar({}),
       },
     });
     const moved = await placeOffice(u.id, u.cellId);
     await reloadFloors(moved.to);
-    return loadMe(u.id);
+    return { user: await loadMe(u.id), password };
   });
 }

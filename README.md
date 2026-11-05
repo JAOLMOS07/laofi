@@ -86,7 +86,7 @@ Para alguien fuera de tu red hace falta un túnel (por ejemplo Cloudflare Tunnel
 Producción usa un solo puerto: el mismo servidor entrega la API, el cliente y el multijugador. La base es Neon y el servicio se define en [`render.yaml`](./render.yaml). La voz queda apagada.
 
 1. Crea un proyecto en Neon y guarda su cadena de conexión **directa** (no la pooled) solo en tu máquina.
-2. Prepara la base una sola vez, desde tu PC. El seed de producción nunca borra: si la base ya tiene usuarios, se niega. Lee las cuentas de `equipo.local.json`, ignorado por git: una lista de `{ "email", "name", "cell", "admin"? }`.
+2. Prepara la base una sola vez, desde tu PC. El seed de producción nunca borra: si la base ya tiene usuarios, se niega. Lee las cuentas de `equipo.local.json`, ignorado por git: una lista de `{ "email", "name", "cell", "title"?, "admin"?, "lobby"? }`.
 
    ```powershell
    $env:DATABASE_URL = '<cadena de Neon>'
@@ -94,7 +94,7 @@ Producción usa un solo puerto: el mismo servidor entrega la API, el cliente y e
    pnpm --filter @laofi/server db:seed:prod
    ```
 
-   Las contraseñas temporales quedan en `credenciales-temporales.local.txt`, ignorado por git. Repártelas por un canal privado; cada persona debe cambiar la suya al entrar. Si alguien la pierde, un admin la restablece en **Admin → Personas**.
+   Las contraseñas temporales quedan en `credenciales-temporales.local.txt`, ignorado por git. Repártelas por un canal privado; cada persona debe cambiar la suya al entrar. Si alguien la pierde, un admin la restablece en **Admin → Personas**. Ahí mismo se crean cuentas nuevas: el sistema genera su contraseña temporal y la muestra una sola vez.
 
 3. En Render: **New → Blueprint**, elige el repositorio y pega la misma cadena en `DATABASE_URL`. `SESSION_SECRET` se genera solo.
 

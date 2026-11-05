@@ -20,7 +20,8 @@ const TeamSchema = z
     z.object({
       email: z.string().trim().toLowerCase().email(),
       name: z.string().trim().min(1).max(80),
-      cell: z.enum(CELLS.map((c) => c.id) as [string, ...string[]]),
+      cell: z.enum(CELLS.map((c) => c.id) as [string, ...string[]]).nullable(),
+      lobby: z.boolean().optional(),
       title: z.string().trim().max(80).optional(),
       admin: z.boolean().optional(),
     }),
@@ -39,6 +40,7 @@ function loadTeam(): SeedUser[] {
     avatar: USERS[i % USERS.length]!.avatar,
     ...(u.title ? { title: u.title } : {}),
     ...(u.admin ? { admin: true } : {}),
+    ...(u.lobby ? { lobby: true } : {}),
   }));
 }
 

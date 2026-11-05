@@ -120,7 +120,17 @@ export function AdminPanel() {
           ))}
           <NewUser
             cells={data.cells}
-            onCreate={(body) => run(() => api('POST', '/admin/users', body), 'Persona creada')}
+            onCreate={(body) =>
+              run(async () => {
+                const r = await api<{ password: string }>('POST', '/admin/users', body);
+                toast({
+                  title: `Contraseña temporal de ${String(body.name)}`,
+                  text: `${r.password} · Se muestra solo esta vez. Deberá cambiarla al entrar.`,
+                  icon: 'lock',
+                  timeout: 0,
+                });
+              }, 'Persona creada')
+            }
           />
         </div>
       )}
@@ -256,7 +266,7 @@ function NewUser({
   onCreate: (b: Record<string, unknown>) => Promise<unknown>;
 }) {
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ name: '', email: '', password: '', title: '', cellId: '' });
+  const [f, setF] = useState({ name: '', email: '', title: '', cellId: '' });
   if (!open)
     return (
       <button className="btn" onClick={() => setOpen(true)}>
@@ -270,7 +280,7 @@ function NewUser({
         e.preventDefault();
         void onCreate({ ...f, title: f.title || null, cellId: f.cellId || null }).then(() => {
           setOpen(false);
-          setF({ name: '', email: '', password: '', title: '', cellId: '' });
+          setF({ name: '', email: '', title: '', cellId: '' });
         });
       }}
     >
@@ -287,15 +297,6 @@ function NewUser({
         type="email"
         value={f.email}
         onChange={(e) => setF({ ...f, email: e.target.value })}
-        required
-      />
-      <input
-        className="input sm"
-        placeholder="Contraseña inicial (8+)"
-        type="password"
-        minLength={8}
-        value={f.password}
-        onChange={(e) => setF({ ...f, password: e.target.value })}
         required
       />
       <input
@@ -317,6 +318,7 @@ function NewUser({
           </option>
         ))}
       </select>
+      <p className="hint">Se genera una contraseña temporal que debe cambiar al entrar.</p>
       <div className="row">
         <button className="btn primary sm">Crear</button>
         <button type="button" className="btn sm" onClick={() => setOpen(false)}>

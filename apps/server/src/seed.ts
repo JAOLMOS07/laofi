@@ -112,7 +112,7 @@ export async function populate(
         ...(await credentialsFor(u.email)),
       },
     });
-    const floorId = cell?.floorId ?? (LOBBY_OFFICE_EMAILS.includes(u.email) ? 'lobby' : null);
+    const floorId = cell?.floorId ?? (u.lobby || LOBBY_OFFICE_EMAILS.includes(u.email) ? 'lobby' : null);
     if (floorId) await assignOffice(user.id, floorId, cell?.color ?? '#6b7f99');
   }
 }
