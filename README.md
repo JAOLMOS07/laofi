@@ -83,7 +83,7 @@ Para alguien fuera de tu red hace falta un túnel (por ejemplo Cloudflare Tunnel
 
 ## Publicar en Render + Neon
 
-Producción usa un solo puerto: el mismo servidor entrega la API, el cliente y el multijugador. La base es Neon y el servicio se define en [`render.yaml`](./render.yaml). La voz queda apagada.
+Producción usa un solo puerto: el mismo servidor entrega la API, el cliente y el multijugador. La base es Neon y el servicio se define en [`render.yaml`](./render.yaml). La voz queda apagada hasta configurar LiveKit (ver abajo).
 
 1. Crea un proyecto en Neon y guarda su cadena de conexión **directa** (no la pooled) solo en tu máquina.
 2. Prepara la base una sola vez, desde tu PC. El seed de producción nunca borra: si la base ya tiene usuarios, se niega. Lee las cuentas de `equipo.local.json`, ignorado por git: una lista de `{ "email", "name", "cell", "title"?, "admin"?, "lobby"? }`.
@@ -99,6 +99,15 @@ Producción usa un solo puerto: el mismo servidor entrega la API, el cliente y e
 3. En Render: **New → Blueprint**, elige el repositorio y pega la misma cadena en `DATABASE_URL`. `SESSION_SECRET` se genera solo.
 
 El plan gratis de Render se apaga tras unos minutos sin tráfico: la primera visita después de eso tarda cerca de un minuto. Nunca corras `pnpm test`, `pnpm e2e` ni `db:seed` contra Neon: borran y resiembran.
+
+### Activar la voz en producción
+
+Render no sirve para alojar LiveKit, que necesita puertos UDP. Usa LiveKit Cloud, con plan gratis sin tarjeta:
+
+1. Crea un proyecto en https://cloud.livekit.io y una API key en su configuración.
+2. En Render → Environment agrega `LIVEKIT_URL` (la `wss://…livekit.cloud`), `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`, y guarda para redesplegar.
+
+El plan gratis da 5.000 minutos de conexión al mes. El walkie solo se conecta al hablar o escuchar y se suelta tras 90 segundos sin uso; “Hablar aquí” consume mientras estés dentro, así que las reuniones largas van mejor por Teams.
 
 ## Correr todo con Docker Compose
 

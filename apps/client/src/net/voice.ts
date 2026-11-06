@@ -4,6 +4,8 @@
  *
  * - Piso (`floor-<id>`): sirve al walkie-talkie. Nadie se suscribe a nadie por defecto; solo cuando el servidor
  *   avisa que alguien te está hablando (evento `ptt`) te suscribes a su micrófono mientras dure.
+ *   La conexión se abre al hablar o escuchar y se cierra tras un rato sin uso: mantener a todo el equipo
+ *   conectado el día entero agotaría en un día los minutos del plan gratis de LiveKit Cloud.
  * - Sala (`room-<id>`): "Hablar aquí". Todos los de la sala se escuchan mientras estén dentro.
  */
 import type { ServerEvents } from '@laofi/shared';
@@ -11,7 +13,12 @@ import { type RemoteParticipant, type RemoteTrack, Room, RoomEvent, Track } from
 import { firstName, useUi } from '../state/store';
 import { ApiError, api } from './api';
 
+/** Tiempo sin hablar ni escuchar antes de soltar la conexión del piso. */
+const FLOOR_IDLE_MS = 90_000;
+
 let floorRoom: Room | null = null;
+let floorConnecting: Promise<Room | null> | null = null;
+let floorIdle: ReturnType<typeof setTimeout> | null = null;
 let floorName = '';
 let talkRoom: Room | null = null;
 const listening = new Set<string>();
@@ -46,14 +53,47 @@ async function connect(name: string, autoSubscribe: boolean): Promise<Room | nul
   }
 }
 
-export async function onFloorJoined(floorId: string): Promise<void> {
-  await floorRoom?.disconnect().catch(() => undefined);
+async function closeFloor(): Promise<void> {
+  if (floorIdle) clearTimeout(floorIdle);
+  floorIdle = null;
+  const r = floorRoom;
   floorRoom = null;
+  await r?.disconnect().catch(() => undefined);
+}
+
+/** Abre la conexión del piso una sola vez, aunque la pidan varios a la vez. */
+function ensureFloor(): Promise<Room | null> {
+  if (floorRoom) return Promise.resolve(floorRoom);
+  if (floorConnecting) return floorConnecting;
+  const name = floorName;
+  floorConnecting = connect(name, false)
+    .then(async (r) => {
+      if (name !== floorName) {
+        await r?.disconnect();
+        return null;
+      }
+      if (r) r.on(RoomEvent.Disconnected, () => floorRoom === r && (floorRoom = null));
+      floorRoom = r;
+      return r;
+    })
+    .finally(() => {
+      floorConnecting = null;
+    });
+  return floorConnecting;
+}
+
+function armFloorIdle(): void {
+  if (floorIdle) clearTimeout(floorIdle);
+  floorIdle = setTimeout(() => {
+    if (useUi.getState().ptt.live || listening.size) armFloorIdle();
+    else void closeFloor();
+  }, FLOOR_IDLE_MS);
+}
+
+export async function onFloorJoined(floorId: string): Promise<void> {
+  await closeFloor();
   listening.clear();
   floorName = `floor-${floorId}`;
-  const r = await connect(floorName, false);
-  if (r && floorName === `floor-${floorId}`) floorRoom = r;
-  else await r?.disconnect();
 }
 
 function setListening(userId: string, on: boolean): void {
@@ -67,7 +107,10 @@ function setListening(userId: string, on: boolean): void {
 /** Alguien te habla por walkie (el servidor solo te avisa si eres destinatario). */
 export function onPtt(e: ServerEvents['ptt']): void {
   setListening(e.fromUserId, e.active);
+  armFloorIdle();
   if (e.active) {
+    // Si su micrófono ya estaba publicado cuando conectas, la suscripción se hace aquí.
+    void ensureFloor().then((r) => r && listening.has(e.fromUserId) && setListening(e.fromUserId, true));
     const where = e.target === 'USER' ? 'a ti' : e.target === 'ROOM' ? 'a la sala' : 'a todo el piso';
     useUi.getState().toast({
       title: `${firstName(e.fromName)} habla por walkie`,
@@ -80,9 +123,21 @@ export function onPtt(e: ServerEvents['ptt']): void {
 
 /** Abre o cierra tu micrófono del walkie. */
 export async function setPttMic(on: boolean): Promise<void> {
-  if (!floorRoom) return;
+  armFloorIdle();
+  const room = on ? await ensureFloor() : floorRoom;
+  if (!room) {
+    if (on)
+      useUi.getState().toast({
+        title: 'Walkie sin audio',
+        text: 'La voz no está activa: los demás ven que hablas, pero no te escuchan.',
+        icon: 'mic',
+        timeout: 4000,
+      });
+    return;
+  }
   try {
-    await floorRoom.localParticipant.setMicrophoneEnabled(on);
+    // Si soltaste el botón mientras conectaba, el micrófono no se abre.
+    await room.localParticipant.setMicrophoneEnabled(on && useUi.getState().ptt.live);
   } catch {
     if (on)
       useUi.getState().toast({

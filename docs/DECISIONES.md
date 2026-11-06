@@ -44,6 +44,8 @@ Registro de decisiones con fecha y razón. Lo más nuevo va arriba.
 
 **Los correos del equipo no van al repositorio.** `db:seed:prod` los lee de `equipo.local.json`, ignorado por git, y no usa las cuentas de ejemplo.
 
+**Voz con LiveKit Cloud y conexión del walkie bajo demanda.** Render gratis no puede alojar LiveKit porque no expone UDP. LiveKit Cloud tiene plan gratis de 5.000 minutos de conexión al mes, y antes cada persona quedaba conectada todo el día: 16 personas por 8 horas son unos 5.760 minutos diarios. Ahora la conexión del piso se abre al hablar o escuchar y se cierra tras 90 segundos sin uso. A cambio, lo primero que se dice puede cortarse mientras conecta. Se probó con LiveKit local y micrófonos simulados en dos navegadores.
+
 **Límite de intentos de login.** Al quedar en internet, ocho fallos por email bloquean quince minutos. Está en memoria, igual que la presencia: alcanza con una sola instancia.
 
 ## 2026-11-03 · Despliegues y trabajo actual
