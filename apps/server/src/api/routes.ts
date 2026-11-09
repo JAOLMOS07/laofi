@@ -14,6 +14,8 @@ import {
   normalizeTeamsLink,
   parseAvatar,
   parseCurrentWork,
+  type OfficeHours,
+  OfficeHoursSchema,
 } from '@laofi/shared';
 import type { FastifyInstance } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
@@ -24,6 +26,7 @@ import { signRoomToken, signSession } from '../auth/tokens.js';
 import { prisma } from '../db.js';
 import { env, voiceEnabled } from '../env.js';
 import { loadFloor } from '../floors.js';
+import { getOfficeHours, setOfficeHours } from '../settings.js';
 import { assignOffice } from '../offices.js';
 import { presence } from '../presence/PresenceService.js';
 import { HttpError, SESSION_COOKIE, parse, requireAdmin, requireUser, setSession } from './http.js';
@@ -321,6 +324,20 @@ export function registerRoutes(app: FastifyInstance): void {
         homeFloorId: u.office?.floorId ?? null,
       })),
     };
+  });
+
+  /** Horario de oficina: dentro de él, quien no está conectado se ve en su puesto; fuera, no aparece. */
+  app.get('/api/admin/office-hours', async (req): Promise<OfficeHours> => {
+    await requireAdmin(req);
+    return getOfficeHours();
+  });
+
+  app.put('/api/admin/office-hours', async (req): Promise<OfficeHours> => {
+    await requireAdmin(req);
+    const body = parse(OfficeHoursSchema, req.body);
+    const saved = await setOfficeHours({ ...body, days: [...new Set(body.days)].sort() });
+    for (const h of presence.floorHandles()) h.refreshResidents();
+    return saved;
   });
 
   app.patch('/api/admin/floors/:id', async (req) => {

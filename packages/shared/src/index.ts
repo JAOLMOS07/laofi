@@ -9,3 +9,5 @@ export * from './avatar.js';
 export * from './links.js';
 export * from './api.js';
 export * from './workflow.js';
+export * from './officeHours.js';
+export * from './residents.js';

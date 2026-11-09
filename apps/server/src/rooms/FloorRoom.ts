@@ -8,6 +8,9 @@ import {
   type FloorGeometry,
   type FurnitureKey,
   JoinOptionsSchema,
+  SILENT_STATUSES,
+  isWithinOfficeHours,
+  planResidents,
   MAX_PLAYERS_PER_FLOOR,
   type PlacedItem,
   type PttTarget,
@@ -37,7 +40,8 @@ import { verifyToken } from '../auth/tokens.js';
 import { prisma } from '../db.js';
 import { type FloorView, loadFloor } from '../floors.js';
 import { type FloorHandle, presence } from '../presence/PresenceService.js';
-import { FloorState, FurnitureState, OfficeState, PlayerState } from './schema.js';
+import { getOfficeHours } from '../settings.js';
+import { FloorState, FurnitureState, OfficeState, PlayerState, ResidentState } from './schema.js';
 
 interface Mover {
   x: number;
@@ -53,7 +57,7 @@ interface AuthUser {
   avatar: string;
 }
 
-const silentStatuses: Status[] = ['FOCUS', 'AWAY'];
+const silentStatuses = SILENT_STATUSES;
 const workJson = (w: CurrentWork | null): string => (w ? JSON.stringify(w) : '');
 
 /**
@@ -69,8 +73,12 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
   private movers = new Map<string, Mover>();
   private users = new Map<string, AuthUser>();
   private lastPtt = new Map<string, { target: PttTarget; id?: string }>();
+  private residentsTimer: ReturnType<typeof setTimeout> | null = null;
+  private residentsClock: ReturnType<typeof setInterval> | null = null;
 
-  override async onCreate(options: { floorId?: string }): Promise<void> {
+  override async onCreate(options: { floorId?: string; keepAlive?: boolean }): Promise<void> {
+    // En el servidor real cada piso queda abierto siempre: cambiar de piso no espera a crear la room.
+    if (options.keepAlive) this.autoDispose = false;
     const view = await loadFloor(options.floorId ?? '');
     if (!view) throw new Error(`Piso desconocido: ${options.floorId}`);
     this.view = view;
@@ -103,7 +111,8 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
       this.state.offices.set(o.id, s);
       this.setDoor(
         o.id,
-        silentStatuses.includes(statuses.find((u) => u.id === o.ownerId)?.status ?? 'AVAILABLE'),
+        o.doorManual ??
+          silentStatuses.includes(statuses.find((u) => u.id === o.ownerId)?.status ?? 'AVAILABLE'),
       );
     }
 
@@ -111,10 +120,15 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
     this.registerHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_RATE);
     presence.registerFloor(this);
+    await this.syncResidents();
+    // El horario de oficina empieza y termina solo: se revisa cada minuto.
+    this.residentsClock = setInterval(() => this.refreshResidents(), 60_000);
   }
 
   override onDispose(): void {
     presence.unregisterFloor(this);
+    if (this.residentsTimer) clearTimeout(this.residentsTimer);
+    if (this.residentsClock) clearInterval(this.residentsClock);
   }
 
   override async onAuth(_client: Client, options: unknown): Promise<AuthUser> {
@@ -174,6 +188,7 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
       (type, payload) => client.send(type, payload),
       () => client.leave(4001),
     );
+    for (const h of presence.floorHandles()) h.refreshResidents();
   }
 
   override onLeave(client: Client): void {
@@ -183,6 +198,7 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
     this.movers.delete(client.sessionId);
     this.users.delete(client.sessionId);
     if (u) presence.leave(u.id, client.sessionId);
+    for (const h of presence.floorHandles()) h.refreshResidents();
   }
 
   // ---------------------------------------------------------------- FloorHandle
@@ -234,13 +250,14 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
         ? await prisma.note.count({ where: { toUserId: o.ownerId, readAt: null } })
         : 0;
       s.work = workJson(parseCurrentWork(owner?.currentWork));
-      this.setDoor(o.id, silentStatuses.includes(owner?.status ?? 'AVAILABLE'));
+      this.setDoor(o.id, o.doorManual ?? silentStatuses.includes(owner?.status ?? 'AVAILABLE'));
     }
     for (const [sid, p] of this.state.players) {
       const u = this.users.get(sid);
       if (u) p.isVisitor = !!v.cell && v.cell.id !== u.cellId;
     }
     this.state.layoutVersion = (this.state.layoutVersion || 0) + 1;
+    this.refreshResidents();
   }
 
   setUserStatus(userId: string, status: Status): void {
@@ -250,8 +267,66 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
         const u = this.users.get(sid);
         if (u) u.status = status;
       }
+    // Cambiar de estado vuelve a la puerta de ese estado (en foco, ausente o almorzando la cierra).
     const office = this.view.offices.find((o) => o.ownerId === userId);
-    if (office) this.setDoor(office.id, silentStatuses.includes(status));
+    if (office) {
+      office.doorManual = null;
+      this.setDoor(office.id, silentStatuses.includes(status));
+    }
+    this.refreshResidents();
+  }
+
+  setUserDoor(userId: string, closed: boolean): void {
+    const office = this.view.offices.find((o) => o.ownerId === userId);
+    if (!office) return;
+    office.doorManual = closed;
+    this.setDoor(office.id, closed);
+  }
+
+  /** Agrupa los cambios seguidos (por ejemplo, alguien que cambia de piso sale de uno y entra a otro). */
+  refreshResidents(): void {
+    if (this.residentsTimer) clearTimeout(this.residentsTimer);
+    this.residentsTimer = setTimeout(() => {
+      this.residentsTimer = null;
+      this.syncResidents().catch((err: unknown) => console.error('[la-ofi] residentes:', err));
+    }, 400);
+  }
+
+  private async syncResidents(): Promise<void> {
+    const owners = this.view.offices.map((o) => o.ownerId).filter((id): id is string => !!id);
+    const inHours = isWithinOfficeHours(await getOfficeHours());
+    const offline = inHours ? owners.filter((id) => !presence.get(id)) : [];
+    const users = offline.length
+      ? await prisma.user.findMany({
+          where: { id: { in: offline } },
+          select: { id: true, name: true, cellId: true, status: true, avatarConfig: true },
+        })
+      : [];
+    const taken = new Set([...this.movers.values()].map((m) => `${Math.floor(m.x)},${Math.floor(m.y)}`));
+    const plan = planResidents({
+      offices: this.view.offices,
+      rooms: this.view.rooms,
+      furniture: this.view.furniture,
+      people: users.map((u) => ({ userId: u.id, status: u.status as Status })),
+      taken,
+    });
+    const keep = new Set(plan.map((p) => p.userId));
+    for (const id of [...this.state.residents.keys()]) if (!keep.has(id)) this.state.residents.delete(id);
+    for (const p of plan) {
+      const u = users.find((x) => x.id === p.userId)!;
+      const r = this.state.residents.get(p.userId) ?? new ResidentState();
+      r.userId = u.id;
+      r.name = u.name;
+      r.cellId = u.cellId ?? '';
+      r.avatar = JSON.stringify(parseAvatar(u.avatarConfig));
+      r.status = u.status;
+      r.x = p.x;
+      r.y = p.y;
+      r.rot = p.rot;
+      r.seated = p.seated;
+      r.activity = p.activity;
+      if (!this.state.residents.has(p.userId)) this.state.residents.set(p.userId, r);
+    }
   }
 
   setUserAvatar(userId: string, avatarJson: string): void {
@@ -261,6 +336,8 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
         const u = this.users.get(sid);
         if (u) u.avatar = avatarJson;
       }
+    const r = this.state.residents.get(userId);
+    if (r) r.avatar = avatarJson;
   }
 
   setUserWork(userId: string, work: CurrentWork | null): void {
@@ -301,6 +378,7 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
 
     on('set_status', async (_client, { status }, user) => {
       await prisma.user.update({ where: { id: user.id }, data: { status } });
+      await prisma.office.updateMany({ where: { ownerId: user.id }, data: { doorClosed: null } });
       // El estado se refleja en todos los pisos abiertos (puerta de su oficina, etiqueta sobre su avatar).
       for (const h of presence.floorHandles()) h.setUserStatus(user.id, status);
       const entry = presence.get(user.id);
@@ -314,6 +392,8 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
       if (!k || k.toUserId !== user.id)
         return this.emit(client, 'action_rejected', { action: 'knock_response', reason: 'not_found' });
       await prisma.knock.update({ where: { id: knockId }, data: { response } });
+      // "Pasa" abre la puerta para que la visita pueda entrar.
+      if (response === 'ENTER') await this.persistDoor(user.id, false);
       presence.send(k.fromUserId, 'knock_answered', {
         knockId,
         byUserId: user.id,
@@ -403,6 +483,12 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
       await prisma.placedFurniture.update({ where: { id }, data: { color } });
       f.color = color;
       this.state.furniture.get(id)!.color = color;
+    });
+
+    on('door_set', async (client, { closed }, user) => {
+      if (!this.myOffice(user.id))
+        return this.emit(client, 'action_rejected', { action: 'door_set', reason: 'no_office' });
+      await this.persistDoor(user.id, closed);
     });
 
     on('office_style', async (client, { wallColor, floorColor }, user) => {
@@ -554,6 +640,12 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
     client.send(type, payload);
   }
 
+  /** Guarda la puerta puesta a mano y la aplica en el piso donde esté la oficina. */
+  private async persistDoor(userId: string, closed: boolean): Promise<void> {
+    await prisma.office.updateMany({ where: { ownerId: userId }, data: { doorClosed: closed } });
+    for (const h of presence.floorHandles()) h.setUserDoor(userId, closed);
+  }
+
   private myOffice(userId: string) {
     return this.view.offices.find((o) => o.ownerId === userId);
   }
@@ -588,6 +680,8 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
       featureBlocks(this.floorId),
     );
     for (const k of closed) this.geo.grid.closedDoors.add(k);
+    // Si movieron una silla, quien está sin conexión se sienta donde quedó.
+    this.refreshResidents();
   }
 
   private setDoor(officeId: string, closed: boolean): void {

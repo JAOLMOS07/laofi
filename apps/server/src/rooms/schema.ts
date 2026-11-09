@@ -43,6 +43,24 @@ export const OfficeState = schema(
 );
 export type OfficeState = SchemaType<typeof OfficeState>;
 
+/** Alguien sin conexión, en horario de oficina, que se ve en su puesto (ver planResidents). */
+export const ResidentState = schema(
+  {
+    userId: t.string(),
+    name: t.string(),
+    cellId: t.string(),
+    avatar: t.string(),
+    status: t.string(),
+    x: t.number(),
+    y: t.number(),
+    rot: t.number(),
+    seated: t.boolean(),
+    activity: t.string(),
+  },
+  'ResidentState',
+);
+export type ResidentState = SchemaType<typeof ResidentState>;
+
 export const FloorState = schema(
   {
     floorId: t.string(),
@@ -52,6 +70,7 @@ export const FloorState = schema(
     players: t.map(PlayerState),
     furniture: t.map(FurnitureState),
     offices: t.map(OfficeState),
+    residents: t.map(ResidentState),
   },
   'FloorState',
 );

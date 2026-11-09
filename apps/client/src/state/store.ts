@@ -130,6 +130,7 @@ export const STATUS_INFO = {
   FOCUS: { label: 'En foco', color: '#d9534f' },
   MEETING: { label: 'En reunión', color: '#4a7fd4' },
   AWAY: { label: 'Ausente', color: '#9aa0a6' },
+  LUNCH: { label: 'Almorzando', color: '#e07a5f' },
 } as const;
 
 export const firstName = (n: string): string => n.split(' ')[0] ?? n;

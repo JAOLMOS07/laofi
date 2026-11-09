@@ -25,6 +25,7 @@ enum Status {
   FOCUS
   MEETING
   AWAY
+  LUNCH
 }
 
 enum RoomKind {
@@ -127,6 +128,8 @@ model Office {
   doorAt     Int
   wallColor  String?
   floorColor String?
+  /// Puerta puesta a mano por el dueño. null = la decide su estado (en foco o ausente la cierra).
+  doorClosed Boolean?
   furniture  PlacedFurniture[]
 }
 
@@ -241,4 +244,11 @@ model Meeting {
 
   @@index([userId, startsAt])
   @@index([notifiedAt, startsAt])
+}
+
+/// Ajustes generales que el admin cambia desde la app (por ejemplo, el horario de oficina).
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
 }

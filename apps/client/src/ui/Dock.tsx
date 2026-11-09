@@ -1,5 +1,6 @@
 import { api } from '../net/api';
-import { leaveFloor } from '../net/floor';
+import { leaveFloor, live } from '../net/floor';
+import { toggleMyDoor } from '../scene/engine';
 import { useUi } from '../state/store';
 import { Icon, type IconName } from './icons';
 import { pttLabel, pttStart, pttStop } from './Office';
@@ -35,6 +36,8 @@ export function Dock() {
   const ptt = useUi((s) => s.ptt);
   useUi((s) => s.roomId);
   const me = useUi((s) => s.me);
+  useUi((s) => s.staticVersion);
+  const myOffice = [...live.offices.values()].find((o) => o.ownerId === me?.id);
 
   const logout = async () => {
     await leaveFloor();
@@ -87,6 +90,15 @@ export function Dock() {
           onClick={() => toggle('edit')}
           testid="dock-edit"
         />
+        {myOffice && (
+          <DockButton
+            icon="door"
+            label={myOffice.doorClosed ? 'Abrir puerta' : 'Cerrar puerta'}
+            on={myOffice.doorClosed}
+            onClick={() => toggleMyDoor()}
+            testid="dock-door"
+          />
+        )}
         <DockButton
           icon="note"
           label="Notas"

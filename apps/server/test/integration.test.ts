@@ -457,3 +457,62 @@ describe('entregas y agenda', () => {
     expect(r.status).toBe(400);
   });
 });
+
+describe('gente sin conexión, horario y puertas', () => {
+  let admin: Session;
+  let santiago: Session;
+  let valentina: Session;
+  let rs: Room;
+  const residents = (room: Room): Map<string, any> => (room.state as any).residents;
+  const officeOf = (room: Room, userId: string): any =>
+    [...(room.state as any).offices.values()].find((o: any) => o.ownerId === userId);
+
+  beforeAll(async () => {
+    [admin, santiago, valentina] = await Promise.all([
+      login('jhoger'),
+      login('santiago'),
+      login('valentina'),
+    ]);
+    const allDay = { start: '00:00', end: '23:59', days: [0, 1, 2, 3, 4, 5, 6], timeZone: 'America/Bogota' };
+    expect((await admin.call('PUT', '/api/admin/office-hours', allDay)).status).toBe(200);
+    rs = await enter(santiago, 'hextech');
+  });
+
+  it('solo el admin cambia el horario y se valida', async () => {
+    const bad = { start: '18:00', end: '08:00', days: [1], timeZone: 'America/Bogota' };
+    expect((await admin.call('PUT', '/api/admin/office-hours', bad)).status).toBe(400);
+    expect((await santiago.call('GET', '/api/admin/office-hours')).status).toBe(403);
+  });
+
+  it('en horario, quien no está conectado se ve escribiendo en su escritorio', async () => {
+    await waitFor(() => residents(rs).has(valentina.me.id));
+    expect(residents(rs).has(santiago.me.id)).toBe(false);
+    expect(residents(rs).get(valentina.me.id)).toMatchObject({ activity: 'typing', seated: true });
+  });
+
+  it('al conectarse deja de ser residente y si sale a almorzar se ve en el comedor', async () => {
+    const rv = await enter(valentina, 'hextech');
+    await waitFor(() => !residents(rs).has(valentina.me.id));
+    rv.send('set_status', { status: 'LUNCH' });
+    await waitFor(() => officeOf(rs, valentina.me.id)?.doorClosed === true);
+    await rv.leave();
+    await waitFor(() => residents(rs).get(valentina.me.id)?.activity === 'lunch');
+    expect(residents(rs).get(valentina.me.id).seated).toBe(true);
+  });
+
+  it('el dueño abre y cierra su puerta, y cambiar de estado vuelve a la del estado', async () => {
+    rs.send('door_set', { closed: true });
+    await waitFor(() => officeOf(rs, santiago.me.id)?.doorClosed === true);
+    expect((await prisma.office.findUnique({ where: { ownerId: santiago.me.id } }))?.doorClosed).toBe(true);
+    rs.send('set_status', { status: 'BUSY' });
+    await waitFor(() => officeOf(rs, santiago.me.id)?.doorClosed === false);
+    await new Promise((r) => setTimeout(r, 200));
+    expect((await prisma.office.findUnique({ where: { ownerId: santiago.me.id } }))?.doorClosed).toBeNull();
+  });
+
+  it('fuera de horario la gente sin conexión no aparece', async () => {
+    const closed = { start: '08:00', end: '18:00', days: [], timeZone: 'America/Bogota' };
+    expect((await admin.call('PUT', '/api/admin/office-hours', closed)).status).toBe(200);
+    await waitFor(() => residents(rs).size === 0);
+  });
+});

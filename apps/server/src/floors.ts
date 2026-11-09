@@ -14,6 +14,8 @@ export interface OfficeView extends OfficeSpec {
   ownerName: string | null;
   wallColor: string | null;
   floorColor: string | null;
+  /** Puerta puesta a mano por el dueño; null = la decide su estado. */
+  doorManual: boolean | null;
 }
 export interface RoomView extends RoomSpec {
   teamsLink: string | null;
@@ -92,6 +94,7 @@ export async function loadFloor(floorId: string): Promise<FloorView | null> {
       door: { side: o.doorSide as DoorSide, at: o.doorAt },
       wallColor: o.wallColor,
       floorColor: o.floorColor,
+      doorManual: o.doorClosed,
     })),
     rooms: f.rooms.map((r) => ({
       id: r.id,

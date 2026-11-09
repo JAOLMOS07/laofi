@@ -1371,3 +1371,20 @@ a.work-card {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Gente sin conexión en su puesto: etiqueta tenue con lo que está haciendo. */
+.tag.resident-tag {
+  opacity: 0.78;
+}
+.tag.resident-tag .nm {
+  border-style: dashed;
+}
+.tag .act {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-style: italic;
+}
