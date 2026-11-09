@@ -3,9 +3,11 @@ import type { DeliveryInfo, MeetingInfo } from './api.js';
 import { FURNITURE_KEYS } from './catalog.js';
 import type { DeliveryStatus } from './workflow.js';
 
-export const STATUSES = ['AVAILABLE', 'BUSY', 'FOCUS', 'MEETING', 'AWAY'] as const;
+export const STATUSES = ['AVAILABLE', 'BUSY', 'FOCUS', 'MEETING', 'AWAY', 'LUNCH'] as const;
 export type Status = (typeof STATUSES)[number];
 export const StatusSchema = z.enum(STATUSES);
+/** Estados que cierran la puerta de la oficina y dejan los toques como aviso silencioso. */
+export const SILENT_STATUSES: readonly Status[] = ['FOCUS', 'AWAY', 'LUNCH'];
 
 export const VOICE_MODES = ['APP', 'TEAMS', 'NONE'] as const;
 export type VoiceMode = (typeof VOICE_MODES)[number];
@@ -53,6 +55,8 @@ export const ClientMessages = {
   furniture_move: z.object({ id, x: coord, y: coord, rot }),
   furniture_remove: z.object({ id }),
   furniture_recolor: z.object({ id, color }),
+  /** El dueño abre o cierra la puerta de su oficina. */
+  door_set: z.object({ closed: z.boolean() }),
   office_style: z.object({ wallColor: color.optional(), floorColor: color.optional() }),
   voice_mode: z.object({ mode: z.enum(VOICE_MODES) }),
   ptt_start: z.object({ target: z.enum(PTT_TARGETS), id: id.optional() }),

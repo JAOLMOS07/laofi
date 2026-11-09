@@ -1,3 +1,4 @@
+import type { Absence } from './absence.js';
 /** Formas que intercambian el cliente y la API REST. Viven aquí para que ambos lados no se desalineen. */
 import type { AvatarConfig } from './avatar.js';
 import type { FloorLayout, OfficeSpec, PlacedItem, RoomSpec } from './building.js';
@@ -24,6 +25,8 @@ export interface Me {
   cell: CellInfo | null;
   cellType: 'DEV' | 'QA' | 'INFRA' | null;
   currentWork: CurrentWork | null;
+  /** Ausencia larga programada o en curso (vacaciones, etc.). */
+  absence: Absence | null;
   /** Entró con contraseña temporal: debe cambiarla antes de usar la app. */
   mustChangePassword: boolean;
   /** Piso donde está su oficina (el de su célula, o el Lobby para los jefes). */

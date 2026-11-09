@@ -1,5 +1,8 @@
 import {
+  type Absence,
   type CurrentWork,
+  type Me,
+  shortDay,
   WORK_ACTIVITIES,
   WORK_ACTIVITY_LABEL,
   type WorkActivity,
@@ -137,6 +140,100 @@ export function WorkPanel() {
           </button>
         </div>
       )}
+      <AbsenceForm />
     </>
+  );
+}
+
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** Vacaciones, incapacidad, permiso: queda "Ausente" esos días y su motivo se ve en la puerta de la oficina. */
+function AbsenceForm() {
+  const me = useUi((s) => s.me);
+  const [from, setFrom] = useState(me?.absence?.from ?? today());
+  const [until, setUntil] = useState(me?.absence?.until ?? today());
+  const [reason, setReason] = useState(me?.absence?.reason ?? '');
+  const [error, setError] = useState<string | null>(null);
+  if (!me) return null;
+  const save = async (absence: Absence | null) => {
+    setError(null);
+    try {
+      const next = await api<Me>('PUT', '/me/absence', { absence });
+      useUi.getState().set({ me: next });
+      if (!absence) setReason('');
+      useUi.getState().toast({
+        title: absence ? 'Ausencia guardada' : 'Bienvenido de vuelta',
+        text: absence
+          ? `Tu oficina mostrará “${absence.reason}” hasta el ${shortDay(absence.until)}.`
+          : 'Quedaste disponible.',
+        icon: absence ? 'moon' : 'hi',
+      });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  };
+  return (
+    <form
+      className="stack dlv-form"
+      style={{ marginTop: 18 }}
+      data-testid="absence-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save({ from, until, reason: reason.trim() });
+      }}
+    >
+      <b>¿Te vas unos días?</b>
+      <p className="hint">
+        Vacaciones, incapacidad o permiso: esos días quedas “Ausente” y el mensaje se ve en tu oficina.
+      </p>
+      <div className="row">
+        <label className="row">
+          Desde
+          <input
+            className="input sm"
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            required
+          />
+        </label>
+        <label className="row">
+          Hasta
+          <input
+            className="input sm"
+            type="date"
+            value={until}
+            onChange={(e) => setUntil(e.target.value)}
+            required
+          />
+        </label>
+      </div>
+      <input
+        className="input"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Motivo o mensaje, por ejemplo: De vacaciones, vuelvo el lunes 24"
+        aria-label="Motivo de la ausencia"
+        maxLength={120}
+        required
+      />
+      <div className="row">
+        <button className="btn primary sm">{me.absence ? 'Actualizar ausencia' : 'Guardar ausencia'}</button>
+        {me.absence && (
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => void save(null)}
+            data-testid="absence-clear"
+          >
+            Ya volví
+          </button>
+        )}
+      </div>
+      {error && <p className="error">{error}</p>}
+    </form>
   );
 }

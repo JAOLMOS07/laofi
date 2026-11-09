@@ -25,6 +25,7 @@ enum Status {
   FOCUS
   MEETING
   AWAY
+  LUNCH
 }
 
 enum RoomKind {
@@ -76,6 +77,8 @@ model User {
   status       Status   @default(AVAILABLE)
   /// En qué está trabajando (CurrentWork de @laofi/shared). Lo pone la persona.
   currentWork  Json?
+  /// Ausencia larga (Absence de @laofi/shared): desde, hasta y motivo que se ve en su oficina.
+  absence      Json?
   createdAt    DateTime @default(now())
   office       Office?
   notesSent    Note[]   @relation("NoteFrom")
@@ -127,6 +130,8 @@ model Office {
   doorAt     Int
   wallColor  String?
   floorColor String?
+  /// Puerta puesta a mano por el dueño. null = la decide su estado (en foco o ausente la cierra).
+  doorClosed Boolean?
   furniture  PlacedFurniture[]
 }
 
@@ -241,4 +246,11 @@ model Meeting {
 
   @@index([userId, startsAt])
   @@index([notifiedAt, startsAt])
+}
+
+/// Ajustes generales que el admin cambia desde la app (por ejemplo, el horario de oficina).
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
 }

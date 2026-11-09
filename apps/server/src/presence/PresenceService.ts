@@ -34,6 +34,10 @@ export interface FloorHandle {
   setUserWork(userId: string, work: CurrentWork | null): void;
   /** Vuelve a contar los post-its sin leer de alguien (se ven sobre su escritorio). */
   refreshNotes(userId: string): Promise<void>;
+  /** Vuelve a calcular quién se ve sin conexión en su puesto (alguien entró, salió o cambió de estado). */
+  refreshResidents(): void;
+  /** Abre o cierra la puerta de la oficina de alguien si queda en este piso. */
+  setUserDoor(userId: string, closed: boolean): void;
 }
 
 class PresenceService {

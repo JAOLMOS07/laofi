@@ -12,9 +12,16 @@ import {
   type Status,
   type VoiceToken,
   normalizeTeamsLink,
+  AbsenceSchema,
+  absencePhase,
+  localDay,
+  parseAbsence,
   parseAvatar,
   parseCurrentWork,
+  type OfficeHours,
+  OfficeHoursSchema,
 } from '@laofi/shared';
+import { Prisma } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
 import { z } from 'zod';
@@ -24,6 +31,8 @@ import { signRoomToken, signSession } from '../auth/tokens.js';
 import { prisma } from '../db.js';
 import { env, voiceEnabled } from '../env.js';
 import { loadFloor } from '../floors.js';
+import { getOfficeHours, setOfficeHours } from '../settings.js';
+import { changeStatus } from '../status.js';
 import { assignOffice } from '../offices.js';
 import { presence } from '../presence/PresenceService.js';
 import { HttpError, SESSION_COOKIE, parse, requireAdmin, requireUser, setSession } from './http.js';
@@ -60,6 +69,7 @@ async function loadMe(id: string): Promise<Me> {
     cell: u.cell ? { id: u.cell.id, name: u.cell.name, color: u.cell.color, floorId: u.cell.floorId } : null,
     cellType: u.cell?.type ?? null,
     currentWork: parseCurrentWork(u.currentWork),
+    absence: parseAbsence(u.absence),
     mustChangePassword: u.mustChangePassword,
     homeFloorId: u.office?.floorId ?? null,
   };
@@ -126,6 +136,22 @@ export function registerRoutes(app: FastifyInstance): void {
   app.post('/api/auth/room-token', async (req) => {
     const u = await requireUser(req);
     return { token: await signRoomToken(u.id) };
+  });
+
+  /** Ausencia larga: desde, hasta y motivo. null la quita ("ya volví"). */
+  app.put('/api/me/absence', async (req) => {
+    const u = await requireUser(req);
+    const { absence } = parse(z.object({ absence: AbsenceSchema.nullable() }), req.body);
+    await prisma.user.update({
+      where: { id: u.id },
+      data: { absence: absence ? { ...absence } : Prisma.DbNull },
+    });
+    const { status } = await prisma.user.findUniqueOrThrow({ where: { id: u.id }, select: { status: true } });
+    const today = localDay(new Date(), (await getOfficeHours()).timeZone);
+    if (absence && absencePhase(absence, today) === 'active') await changeStatus(u.id, 'AWAY');
+    else if (!absence && status === 'AWAY') await changeStatus(u.id, 'AVAILABLE');
+    for (const h of presence.floorHandles()) h.refreshResidents();
+    return loadMe(u.id);
   });
 
   app.put('/api/me/avatar', async (req) => {
@@ -321,6 +347,20 @@ export function registerRoutes(app: FastifyInstance): void {
         homeFloorId: u.office?.floorId ?? null,
       })),
     };
+  });
+
+  /** Horario de oficina: dentro de él, quien no está conectado se ve en su puesto; fuera, no aparece. */
+  app.get('/api/admin/office-hours', async (req): Promise<OfficeHours> => {
+    await requireAdmin(req);
+    return getOfficeHours();
+  });
+
+  app.put('/api/admin/office-hours', async (req): Promise<OfficeHours> => {
+    await requireAdmin(req);
+    const body = parse(OfficeHoursSchema, req.body);
+    const saved = await setOfficeHours({ ...body, days: [...new Set(body.days)].sort() });
+    for (const h of presence.floorHandles()) h.refreshResidents();
+    return saved;
   });
 
   app.patch('/api/admin/floors/:id', async (req) => {

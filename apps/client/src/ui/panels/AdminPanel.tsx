@@ -1,11 +1,11 @@
-import type { AdminOverview } from '@laofi/shared';
+import type { AdminOverview, OfficeHours } from '@laofi/shared';
 import { useEffect, useState } from 'react';
 import { ApiError, api } from '../../net/api';
 import { refreshBuilding } from '../../net/floor';
 import { useUi } from '../../state/store';
 import { PanelHeader } from '../common';
 
-type Tab = 'people' | 'rooms' | 'floors';
+type Tab = 'people' | 'rooms' | 'floors' | 'hours';
 
 export function AdminPanel() {
   const [data, setData] = useState<AdminOverview | null>(null);
@@ -37,13 +37,24 @@ export function AdminPanel() {
     <>
       <PanelHeader title="Administración" sub="Células, personas, salas y pisos." />
       <div className="tabs">
-        {(['people', 'rooms', 'floors'] as Tab[]).map((t) => (
+        {(['people', 'rooms', 'floors', 'hours'] as Tab[]).map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-            {t === 'people' ? 'Personas' : t === 'rooms' ? 'Salas' : 'Pisos y células'}
+            {t === 'people'
+              ? 'Personas'
+              : t === 'rooms'
+                ? 'Salas'
+                : t === 'floors'
+                  ? 'Pisos y células'
+                  : 'Horario'}
           </button>
         ))}
       </div>
       {error && <p className="error">{error}</p>}
+      {tab === 'hours' && (
+        <OfficeHoursForm
+          onSave={(h) => run(() => api('PUT', '/admin/office-hours', h), 'Horario guardado')}
+        />
+      )}
 
       {tab === 'people' && (
         <div className="stack">
@@ -324,6 +335,76 @@ function NewUser({
         <button type="button" className="btn sm" onClick={() => setOpen(false)}>
           Cancelar
         </button>
+      </div>
+    </form>
+  );
+}
+
+const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+/** Horario de oficina: dentro de él, quien no está conectado se ve en su puesto; fuera, no aparece. */
+function OfficeHoursForm({ onSave }: { onSave: (h: OfficeHours) => Promise<unknown> }) {
+  const [h, setH] = useState<OfficeHours | null>(null);
+  useEffect(() => {
+    void api<OfficeHours>('GET', '/admin/office-hours').then(setH);
+  }, []);
+  if (!h) return <p className="hint">Cargando…</p>;
+  const toggleDay = (d: number) =>
+    setH({ ...h, days: h.days.includes(d) ? h.days.filter((x) => x !== d) : [...h.days, d].sort() });
+  return (
+    <form
+      className="stack admin-row"
+      data-testid="office-hours"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void onSave(h);
+      }}
+    >
+      <p className="hint">
+        En este horario, quien no está conectado se ve en su puesto haciendo algo según su estado
+        (escribiendo, almorzando en el comedor, en reunión). Fuera de horario no aparece.
+      </p>
+      <div className="row">
+        <label className="row">
+          Entrada
+          <input
+            className="input sm"
+            type="time"
+            value={h.start}
+            onChange={(e) => setH({ ...h, start: e.target.value })}
+            required
+          />
+        </label>
+        <label className="row">
+          Salida
+          <input
+            className="input sm"
+            type="time"
+            value={h.end}
+            onChange={(e) => setH({ ...h, end: e.target.value })}
+            required
+          />
+        </label>
+      </div>
+      <div className="row">
+        {DAYS.map((name, d) => (
+          <label key={d} className="row">
+            <input type="checkbox" checked={h.days.includes(d)} onChange={() => toggleDay(d)} />
+            {name}
+          </label>
+        ))}
+      </div>
+      <label className="row">
+        Zona horaria
+        <input
+          className="input sm"
+          value={h.timeZone}
+          onChange={(e) => setH({ ...h, timeZone: e.target.value })}
+          required
+        />
+      </label>
+      <div className="row">
+        <button className="btn primary sm">Guardar horario</button>
       </div>
     </form>
   );

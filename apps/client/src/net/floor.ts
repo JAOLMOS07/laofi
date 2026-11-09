@@ -4,6 +4,7 @@
  */
 import { Client, type Room } from '@colyseus/sdk';
 import {
+  type Absence,
   type AvatarConfig,
   type BuildingFloor,
   type CellInfo,
@@ -16,11 +17,13 @@ import {
   type FloorInfo,
   type FurnitureKey,
   type MeetingInfo,
+  type ResidentActivity,
   type Rotation,
   type ServerEventType,
   type ServerEvents,
   type Status,
   type VoiceMode,
+  parseAbsence,
   parseAvatar,
   parseCurrentWork,
 } from '@laofi/shared';
@@ -44,6 +47,21 @@ export interface PlayerSnap {
   roomId: string;
   talking: boolean;
 }
+/** Alguien sin conexión que se ve en su puesto (escribiendo, almorzando…). */
+export interface ResidentSnap {
+  sid: string;
+  userId: string;
+  name: string;
+  cellId: string;
+  avatar: AvatarConfig;
+  avatarRaw: string;
+  status: Status;
+  x: number;
+  y: number;
+  rot: Rotation;
+  seated: boolean;
+  activity: ResidentActivity;
+}
 export interface FurnSnap {
   id: string;
   key: FurnitureKey;
@@ -62,12 +80,16 @@ export interface OfficeSnap {
   unreadNotes: number;
   work: CurrentWork | null;
   workRaw: string;
+  /** Ausencia larga en curso del dueño: su motivo se ve en la oficina. */
+  absence: Absence | null;
 }
 
 export const live = {
   players: new Map<string, PlayerSnap>(),
   furniture: new Map<string, FurnSnap>(),
   offices: new Map<string, OfficeSnap>(),
+  /** Clave "r:<userId>" para no chocar con los ids de sesión. */
+  residents: new Map<string, ResidentSnap>(),
 };
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -198,18 +220,17 @@ export async function enterFloor(
       api<FloorInfo>('GET', `/floors/${floorId}`),
       api<{ token: string }>('POST', '/auth/room-token'),
     ]);
-    if (room) {
-      leavingOnPurpose = true;
-      await room.leave().catch(() => undefined);
-      leavingOnPurpose = false;
-    }
+    // Primero entra al piso nuevo y después suelta el anterior, sin esperar su respuesta.
+    const r = await new Client(SERVER_URL).joinOrCreate(FLOOR_ROOM, { floorId, token, spawn });
+    const old = room;
+    room = r;
+    if (old) void old.leave().catch(() => undefined);
     live.players.clear();
     live.furniture.clear();
     live.offices.clear();
+    live.residents.clear();
     staticSig = '';
     layoutVersion = -1;
-    const r = await new Client(SERVER_URL).joinOrCreate(FLOOR_ROOM, { floorId, token, spawn });
-    room = r;
     useUi.getState().set({
       floor: info,
       mySid: r.sessionId,
@@ -219,7 +240,6 @@ export async function enterFloor(
     });
     wire(r, floorId);
     void onFloorJoined(floorId);
-    await new Promise((res) => setTimeout(res, 250));
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -239,12 +259,16 @@ export async function leaveFloor(): Promise<void> {
   leavingOnPurpose = false;
   room = null;
   live.players.clear();
+  live.residents.clear();
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function wire(r: Room<any>, floorId: string): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  r.onStateChange((state: any) => sync(state, floorId));
+  r.onStateChange((state: any) => {
+    // El piso anterior puede mandar un último estado mientras se suelta: se ignora.
+    if (room === r) sync(state, floorId);
+  });
   r.onLeave((code: number) => {
     if (room !== r) return;
     room = null;
@@ -404,6 +428,15 @@ function rejectText(action: string, reason: string): string {
   return m[reason] ?? `No se pudo (${action}: ${reason}).`;
 }
 
+function parseAbsenceRaw(raw: string): Absence | null {
+  if (!raw) return null;
+  try {
+    return parseAbsence(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 function parseWork(raw: string): CurrentWork | null {
   if (!raw) return null;
   try {
@@ -465,6 +498,44 @@ function sync(state: any, floorId: string): void {
       peopleChanged = true;
     }
 
+  const seenRes = new Set<string>();
+  state.residents?.forEach((r: Record<string, unknown>, userId: string) => {
+    const sid = `r:${userId}`;
+    seenRes.add(sid);
+    const prev = live.residents.get(sid);
+    const avatarRaw = String(r.avatar ?? '');
+    let avatar = prev?.avatar;
+    if (!prev || prev.avatarRaw !== avatarRaw) {
+      try {
+        avatar = parseAvatar(JSON.parse(avatarRaw));
+      } catch {
+        avatar = parseAvatar(null);
+      }
+    }
+    const next: ResidentSnap = {
+      sid,
+      userId,
+      name: String(r.name),
+      cellId: String(r.cellId ?? ''),
+      avatar: avatar!,
+      avatarRaw,
+      status: r.status as Status,
+      x: Number(r.x),
+      y: Number(r.y),
+      rot: Number(r.rot) as Rotation,
+      seated: Boolean(r.seated),
+      activity: r.activity as ResidentActivity,
+    };
+    if (!prev || prev.status !== next.status || prev.activity !== next.activity || prev.name !== next.name)
+      peopleChanged = true;
+    live.residents.set(sid, next);
+  });
+  for (const sid of [...live.residents.keys()])
+    if (!seenRes.has(sid)) {
+      live.residents.delete(sid);
+      peopleChanged = true;
+    }
+
   live.furniture.clear();
   state.furniture?.forEach((f: Record<string, unknown>, id: string) =>
     live.furniture.set(id, {
@@ -488,6 +559,7 @@ function sync(state: any, floorId: string): void {
       unreadNotes: Number(o.unreadNotes),
       work: parseWork(String(o.work ?? '')),
       workRaw: String(o.work ?? ''),
+      absence: parseAbsenceRaw(String(o.absence ?? '')),
     }),
   );
   const sig = JSON.stringify([...live.furniture.values()]) + JSON.stringify([...live.offices.values()]);
@@ -559,6 +631,7 @@ if (import.meta.env.DEV || import.meta.env.VITE_E2E) {
     me: () => myPlayer(),
     players: () => [...live.players.values()],
     offices: () => [...live.offices.values()],
+    residents: () => [...live.residents.values()],
     floor: () => useUi.getState().floor,
   };
 }

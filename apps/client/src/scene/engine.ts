@@ -3,6 +3,7 @@
  * esta clase dibuja el piso, mueve los avatares con lo que manda el servidor y traduce clics en acciones.
  */
 import {
+  type Absence,
   CATALOG,
   type CurrentWork,
   type FloorInfo,
@@ -15,13 +16,16 @@ import {
   featureBlocks,
   footprint,
   rectContains,
+  shortDay,
   validatePlacement,
+  ACTIVITY_LABEL,
   WORK_ACTIVITY_LABEL,
 } from '@laofi/shared';
 import * as THREE from 'three';
 import {
   type FurnSnap,
   type PlayerSnap,
+  type ResidentSnap,
   initAudio,
   live,
   myPlayer,
@@ -523,12 +527,26 @@ export class Engine {
     return el;
   }
 
+  /** Mensaje en la puerta mientras el dueño está de vacaciones o ausente varios días. */
+  private absenceCard(office: OfficeInfo, a: Absence): HTMLElement {
+    const el = document.createElement('button');
+    el.className = 'work-card absence-card';
+    el.textContent = `${a.reason} · hasta el ${shortDay(a.until)}`;
+    el.dataset.testid = `absence-${office.ownerId}`;
+    el.addEventListener('click', () => {
+      if (office.ownerId) useUi.getState().openPanel('person', office.ownerId);
+    });
+    return el;
+  }
+
   private syncWorkCards(): void {
     this.clearWorkCards();
     for (const o of this.floor?.offices ?? []) {
-      const work = live.offices.get(o.id)?.work;
-      if (!work) continue;
-      const el = this.workCard(o, work);
+      const snap = live.offices.get(o.id);
+      const work = snap?.work;
+      const away = snap?.absence;
+      if (!work && !away) continue;
+      const el = away ? this.absenceCard(o, away) : this.workCard(o, work!);
       this.labels.appendChild(el);
       this.workCards.push({ el, pos: new THREE.Vector3(o.x + o.w / 2, 1.9, o.y + o.d / 2) });
     }
@@ -587,7 +605,7 @@ export class Engine {
   }
 
   // ---------------------------------------------------------------- avatares
-  private addAvatar(p: PlayerSnap): AvatarView {
+  private addAvatar(p: PlayerSnap | ResidentSnap): AvatarView {
     const { group, parts } = buildAvatar(p.avatar);
     group.traverse((o) => (o.userData.sid = p.sid));
     this.agentGroup.add(group);
@@ -624,10 +642,19 @@ export class Engine {
     for (const a of this.avatars.values()) {
       const p = live.players.get(a.sid);
       if (p) this.renderTag(a, p);
+      const r = live.residents.get(a.sid);
+      if (r) this.renderTag(a, r);
     }
   }
 
-  private renderTag(a: AvatarView, p: PlayerSnap): void {
+  private renderTag(a: AvatarView, p: PlayerSnap | ResidentSnap): void {
+    const esc0 = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    if ('activity' in p) {
+      // Sin conexión: etiqueta tenue con lo que está haciendo.
+      a.tag.className = 'tag resident-tag';
+      a.tag.innerHTML = `<span class="act">${ACTIVITY_LABEL[p.activity]}</span><span class="nm"><i class="dot" style="background:${STATUS_INFO[p.status].color}"></i>${esc0(firstName(p.name))}</span>`;
+      return;
+    }
     const ui = useUi.getState();
     const isMe = p.sid === ui.mySid;
     const cell = ui.building?.cells.find((c) => c.id === p.cellId);
@@ -653,7 +680,9 @@ export class Engine {
   }
 
   private updateAvatars(dt: number): void {
-    for (const sid of [...this.avatars.keys()]) if (!live.players.has(sid)) this.removeAvatar(sid);
+    for (const sid of [...this.avatars.keys()])
+      if (!live.players.has(sid) && !live.residents.has(sid)) this.removeAvatar(sid);
+    this.updateResidents(dt);
     const mySid = useUi.getState().mySid;
     for (const p of live.players.values()) {
       let a = this.avatars.get(p.sid);
@@ -700,6 +729,55 @@ export class Engine {
       const talking = p.talking || (isMe && useUi.getState().ptt.live);
       u.ring.material.opacity = talking ? 0.5 + Math.sin(performance.now() / 120) * 0.3 : isMe ? 0.35 : 0;
       u.ring.material.color.set(talking ? '#d9534f' : '#ffffff');
+    }
+  }
+
+  /** Gente sin conexión: quieta en su puesto, con una animación según lo que hace. */
+  private updateResidents(dt: number): void {
+    const t = performance.now() / 1000;
+    for (const r of live.residents.values()) {
+      let a = this.avatars.get(r.sid);
+      if (a && a.avatarRaw !== r.avatarRaw) {
+        this.removeAvatar(r.sid);
+        a = undefined;
+      }
+      if (!a) {
+        a = this.addAvatar(r);
+        const rr = (r.rot * Math.PI) / 180;
+        a.heading = Math.atan2(-Math.sin(rr), -Math.cos(rr));
+        a.sit = r.seated ? 1 : 0;
+      }
+      a.pos.set(r.x, 0, r.y);
+      a.walkT += dt * 1.6;
+      const u = a.parts;
+      const ph = a.walkT * 0.37 + r.x;
+      let armL = 0;
+      let armR = 0;
+      if (r.activity === 'typing') {
+        // Brazos al teclado, tecleando a ratos.
+        const burst = Math.sin(t * 0.7 + ph) > -0.3 ? 1 : 0;
+        armL = -1.15 + Math.sin(t * 17 + ph) * 0.09 * burst;
+        armR = -1.15 + Math.sin(t * 19 + ph + 1.3) * 0.09 * burst;
+      } else if (r.activity === 'lunch') {
+        // Una mano lleva la cuchara a la boca de vez en cuando.
+        const bite = Math.max(0, Math.sin(t * 1.3 + ph));
+        armL = -0.9;
+        armR = -0.9 - bite * 1.1;
+      } else if (r.activity === 'meeting') {
+        armL = -0.75;
+        armR = -0.75 + Math.max(0, Math.sin(t * 0.9 + ph)) * -0.5;
+      }
+      u.legL.rotation.x = -a.sit * 1.45;
+      u.legR.rotation.x = -a.sit * 1.45;
+      u.armL.rotation.x = armL;
+      u.armR.rotation.x = armR;
+      const breathe = r.activity === 'resting' ? Math.sin(t * 1.2 + ph) * 0.012 : Math.sin(a.walkT) * 0.006;
+      u.body.position.y = a.sit * 0.05 + breathe;
+      u.body.position.z = -a.sit * 0.05;
+      u.body.rotation.x = r.activity === 'resting' ? -0.12 : r.activity === 'typing' ? 0.06 : 0;
+      a.group.position.copy(a.pos);
+      a.group.rotation.y = a.heading;
+      u.ring.material.opacity = 0;
     }
   }
 
@@ -903,7 +981,7 @@ export class Engine {
     const ah = this.ray.intersectObjects(this.agentGroup.children, true)[0];
     const sid = ah?.object.userData.sid as string | undefined;
     if (sid && sid !== ui.mySid) {
-      const p = live.players.get(sid);
+      const p = live.players.get(sid) ?? live.residents.get(sid);
       if (p) return ui.openPanel('person', p.userId);
     }
     const dm = this.ray.intersectObjects(this.doorMats, false)[0];
@@ -994,6 +1072,15 @@ export function rotateSelected(): void {
   const f = ui.edit.selId ? live.furniture.get(ui.edit.selId) : undefined;
   if (!f) return;
   send('furniture_move', { id: f.id, x: f.x, y: f.y, rot: ((f.rot + 90) % 360) as Rotation });
+}
+
+/** Abre o cierra la puerta de mi oficina (si queda en este piso). */
+export function toggleMyDoor(): boolean | null {
+  const me = useUi.getState().me;
+  const office = [...live.offices.values()].find((o) => o.ownerId === me?.id);
+  if (!office) return null;
+  send('door_set', { closed: !office.doorClosed });
+  return !office.doorClosed;
 }
 
 let engine: Engine | null = null;

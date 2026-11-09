@@ -38,10 +38,30 @@ export const OfficeState = schema(
     unreadNotes: t.number(),
     /** CurrentWork en JSON, o "" si no publicó nada. */
     work: t.string(),
+    /** Absence en JSON si el dueño está ausente hoy, o "". */
+    absence: t.string(),
   },
   'OfficeState',
 );
 export type OfficeState = SchemaType<typeof OfficeState>;
+
+/** Alguien sin conexión, en horario de oficina, que se ve en su puesto (ver planResidents). */
+export const ResidentState = schema(
+  {
+    userId: t.string(),
+    name: t.string(),
+    cellId: t.string(),
+    avatar: t.string(),
+    status: t.string(),
+    x: t.number(),
+    y: t.number(),
+    rot: t.number(),
+    seated: t.boolean(),
+    activity: t.string(),
+  },
+  'ResidentState',
+);
+export type ResidentState = SchemaType<typeof ResidentState>;
 
 export const FloorState = schema(
   {
@@ -52,6 +72,7 @@ export const FloorState = schema(
     players: t.map(PlayerState),
     furniture: t.map(FurnitureState),
     offices: t.map(OfficeState),
+    residents: t.map(ResidentState),
   },
   'FloorState',
 );
