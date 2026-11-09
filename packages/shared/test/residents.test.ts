@@ -108,3 +108,14 @@ describe('horario de oficina', () => {
     expect(parseOfficeHours(null)).toEqual(DEFAULT_OFFICE_HOURS);
   });
 });
+
+describe('ausencias', () => {
+  it('sabe si una ausencia viene, está en curso o ya pasó', async () => {
+    const { absencePhase, shortDay } = await import('../src/index.js');
+    const a = { from: '2026-11-10', until: '2026-11-20', reason: 'Vacaciones' };
+    expect(absencePhase(a, '2026-11-09')).toBe('upcoming');
+    expect(absencePhase(a, '2026-11-20')).toBe('active');
+    expect(absencePhase(a, '2026-11-21')).toBe('over');
+    expect(shortDay('2026-11-20')).toBe('20 nov');
+  });
+});

@@ -11,6 +11,7 @@ import {
   type Me,
   type MeetingInfo,
   type ServerEvents,
+  localDay,
   validatePlacement,
 } from '@laofi/shared';
 import type { AddressInfo } from 'node:net';
@@ -508,6 +509,22 @@ describe('gente sin conexión, horario y puertas', () => {
     await waitFor(() => officeOf(rs, santiago.me.id)?.doorClosed === false);
     await new Promise((r) => setTimeout(r, 200));
     expect((await prisma.office.findUnique({ where: { ownerId: santiago.me.id } }))?.doorClosed).toBeNull();
+  });
+
+  it('una ausencia larga deja el mensaje en la oficina y la saca de su puesto', async () => {
+    const today = localDay(new Date(), 'America/Bogota');
+    const absence = { from: today, until: '2099-12-31', reason: 'De vacaciones' };
+    const r = await valentina.call<Me>('PUT', '/api/me/absence', { absence });
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ status: 'AWAY', absence });
+    await waitFor(() => officeOf(rs, valentina.me.id)?.absence.includes('De vacaciones'));
+    await waitFor(() => !residents(rs).has(valentina.me.id));
+    const bad = { from: '2026-11-20', until: '2026-11-10', reason: 'x' };
+    expect((await valentina.call('PUT', '/api/me/absence', { absence: bad })).status).toBe(400);
+    const back = await valentina.call<Me>('PUT', '/api/me/absence', { absence: null });
+    expect(back.data).toMatchObject({ status: 'AVAILABLE', absence: null });
+    await waitFor(() => officeOf(rs, valentina.me.id)?.absence === '');
+    await waitFor(() => residents(rs).get(valentina.me.id)?.activity === 'typing');
   });
 
   it('fuera de horario la gente sin conexión no aparece', async () => {

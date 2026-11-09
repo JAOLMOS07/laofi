@@ -38,6 +38,8 @@ export const OfficeState = schema(
     unreadNotes: t.number(),
     /** CurrentWork en JSON, o "" si no publicó nada. */
     work: t.string(),
+    /** Absence en JSON si el dueño está ausente hoy, o "". */
+    absence: t.string(),
   },
   'OfficeState',
 );

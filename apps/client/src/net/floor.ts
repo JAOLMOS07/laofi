@@ -4,6 +4,7 @@
  */
 import { Client, type Room } from '@colyseus/sdk';
 import {
+  type Absence,
   type AvatarConfig,
   type BuildingFloor,
   type CellInfo,
@@ -22,6 +23,7 @@ import {
   type ServerEvents,
   type Status,
   type VoiceMode,
+  parseAbsence,
   parseAvatar,
   parseCurrentWork,
 } from '@laofi/shared';
@@ -78,6 +80,8 @@ export interface OfficeSnap {
   unreadNotes: number;
   work: CurrentWork | null;
   workRaw: string;
+  /** Ausencia larga en curso del dueño: su motivo se ve en la oficina. */
+  absence: Absence | null;
 }
 
 export const live = {
@@ -424,6 +428,15 @@ function rejectText(action: string, reason: string): string {
   return m[reason] ?? `No se pudo (${action}: ${reason}).`;
 }
 
+function parseAbsenceRaw(raw: string): Absence | null {
+  if (!raw) return null;
+  try {
+    return parseAbsence(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 function parseWork(raw: string): CurrentWork | null {
   if (!raw) return null;
   try {
@@ -546,6 +559,7 @@ function sync(state: any, floorId: string): void {
       unreadNotes: Number(o.unreadNotes),
       work: parseWork(String(o.work ?? '')),
       workRaw: String(o.work ?? ''),
+      absence: parseAbsenceRaw(String(o.absence ?? '')),
     }),
   );
   const sig = JSON.stringify([...live.furniture.values()]) + JSON.stringify([...live.offices.values()]);

@@ -3,6 +3,7 @@
  * esta clase dibuja el piso, mueve los avatares con lo que manda el servidor y traduce clics en acciones.
  */
 import {
+  type Absence,
   CATALOG,
   type CurrentWork,
   type FloorInfo,
@@ -15,6 +16,7 @@ import {
   featureBlocks,
   footprint,
   rectContains,
+  shortDay,
   validatePlacement,
   ACTIVITY_LABEL,
   WORK_ACTIVITY_LABEL,
@@ -525,12 +527,26 @@ export class Engine {
     return el;
   }
 
+  /** Mensaje en la puerta mientras el dueño está de vacaciones o ausente varios días. */
+  private absenceCard(office: OfficeInfo, a: Absence): HTMLElement {
+    const el = document.createElement('button');
+    el.className = 'work-card absence-card';
+    el.textContent = `${a.reason} · hasta el ${shortDay(a.until)}`;
+    el.dataset.testid = `absence-${office.ownerId}`;
+    el.addEventListener('click', () => {
+      if (office.ownerId) useUi.getState().openPanel('person', office.ownerId);
+    });
+    return el;
+  }
+
   private syncWorkCards(): void {
     this.clearWorkCards();
     for (const o of this.floor?.offices ?? []) {
-      const work = live.offices.get(o.id)?.work;
-      if (!work) continue;
-      const el = this.workCard(o, work);
+      const snap = live.offices.get(o.id);
+      const work = snap?.work;
+      const away = snap?.absence;
+      if (!work && !away) continue;
+      const el = away ? this.absenceCard(o, away) : this.workCard(o, work!);
       this.labels.appendChild(el);
       this.workCards.push({ el, pos: new THREE.Vector3(o.x + o.w / 2, 1.9, o.y + o.d / 2) });
     }

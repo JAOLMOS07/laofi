@@ -8,6 +8,9 @@ import {
   type FloorGeometry,
   type FurnitureKey,
   JoinOptionsSchema,
+  absencePhase,
+  localDay,
+  parseAbsence,
   SILENT_STATUSES,
   isWithinOfficeHours,
   planResidents,
@@ -37,10 +40,12 @@ import {
   validatePlacement,
 } from '@laofi/shared';
 import { verifyToken } from '../auth/tokens.js';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { type FloorView, loadFloor } from '../floors.js';
 import { type FloorHandle, presence } from '../presence/PresenceService.js';
 import { getOfficeHours } from '../settings.js';
+import { changeStatus } from '../status.js';
 import { FloorState, FurnitureState, OfficeState, PlayerState, ResidentState } from './schema.js';
 
 interface Mover {
@@ -294,14 +299,33 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
 
   private async syncResidents(): Promise<void> {
     const owners = this.view.offices.map((o) => o.ownerId).filter((id): id is string => !!id);
-    const inHours = isWithinOfficeHours(await getOfficeHours());
-    const offline = inHours ? owners.filter((id) => !presence.get(id)) : [];
-    const users = offline.length
+    const hours = await getOfficeHours();
+    const inHours = isWithinOfficeHours(hours);
+    const today = localDay(new Date(), hours.timeZone);
+    const all = owners.length
       ? await prisma.user.findMany({
-          where: { id: { in: offline } },
-          select: { id: true, name: true, cellId: true, status: true, avatarConfig: true },
+          where: { id: { in: owners } },
+          select: { id: true, name: true, cellId: true, status: true, avatarConfig: true, absence: true },
         })
       : [];
+    // Ausencias largas: mensaje en la oficina mientras duran; al empezar queda "Ausente" y al terminar "Disponible".
+    const absent = new Set<string>();
+    for (const u of all) {
+      const a = parseAbsence(u.absence);
+      const phase = a ? absencePhase(a, today) : null;
+      const office = this.view.offices.find((o) => o.ownerId === u.id);
+      const s = office && this.state.offices.get(office.id);
+      const json = a && phase === 'active' ? JSON.stringify(a) : '';
+      if (s && s.absence !== json) s.absence = json;
+      if (phase === 'active') {
+        absent.add(u.id);
+        if (u.status !== 'AWAY') await changeStatus(u.id, 'AWAY');
+      } else if (phase === 'over') {
+        await prisma.user.update({ where: { id: u.id }, data: { absence: Prisma.DbNull } });
+        if (u.status === 'AWAY') await changeStatus(u.id, 'AVAILABLE');
+      }
+    }
+    const users = inHours ? all.filter((u) => !presence.get(u.id) && !absent.has(u.id)) : [];
     const taken = new Set([...this.movers.values()].map((m) => `${Math.floor(m.x)},${Math.floor(m.y)}`));
     const plan = planResidents({
       offices: this.view.offices,
@@ -376,14 +400,7 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
 
     on('move', (client, { x, y }) => this.handleMove(client, x, y));
 
-    on('set_status', async (_client, { status }, user) => {
-      await prisma.user.update({ where: { id: user.id }, data: { status } });
-      await prisma.office.updateMany({ where: { ownerId: user.id }, data: { doorClosed: null } });
-      // El estado se refleja en todos los pisos abiertos (puerta de su oficina, etiqueta sobre su avatar).
-      for (const h of presence.floorHandles()) h.setUserStatus(user.id, status);
-      const entry = presence.get(user.id);
-      if (entry) presence.update(user.id, entry.sessionId, { status });
-    });
+    on('set_status', (_client, { status }, user) => changeStatus(user.id, status));
 
     on('knock', (client, { toUserId }, user) => this.handleKnock(client, user, toUserId));
 
@@ -593,7 +610,10 @@ export class FloorRoom extends Room<{ state: FloorState }> implements FloorHandl
     const target = await prisma.user.findUniqueOrThrow({ where: { id: toUserId } });
     const online = presence.get(toUserId);
     const status = (online?.status ?? target.status) as Status;
-    const queued = !online || silentStatuses.includes(status);
+    const away = parseAbsence(target.absence);
+    const absentNow =
+      !!away && absencePhase(away, localDay(new Date(), (await getOfficeHours()).timeZone)) === 'active';
+    const queued = !online || absentNow || silentStatuses.includes(status);
     const knock = await prisma.knock.create({ data: { fromUserId: user.id, toUserId, queued } });
     presence.send(toUserId, 'knock_received', {
       knockId: knock.id,

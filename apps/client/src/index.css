@@ -1388,3 +1388,11 @@ a.work-card {
   color: var(--muted);
   font-style: italic;
 }
+
+/* Ausencia larga: mensaje en la puerta de la oficina. */
+.work-card.absence-card {
+  background: var(--chip);
+  color: var(--muted);
+  font-style: italic;
+  border-style: dashed;
+}

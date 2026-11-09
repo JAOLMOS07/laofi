@@ -77,6 +77,8 @@ model User {
   status       Status   @default(AVAILABLE)
   /// En qué está trabajando (CurrentWork de @laofi/shared). Lo pone la persona.
   currentWork  Json?
+  /// Ausencia larga (Absence de @laofi/shared): desde, hasta y motivo que se ve en su oficina.
+  absence      Json?
   createdAt    DateTime @default(now())
   office       Office?
   notesSent    Note[]   @relation("NoteFrom")
